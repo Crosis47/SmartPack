@@ -1,10 +1,16 @@
 name: Condense
 version: '${project.version}'
 main: rd156.minecraft.condense.CondensePlugin
-api-version: 1.19
+api-version: '1.21.11'
 authors: [ rd156 ]
-description: Spigot plugin with a command to condense items into their blocks.
+description: Paper plugin with a command to condense items into other items.
+
 commands:
   condense:
-    description: Condense items into their blocks
+    description: Condense configured items into other items
     permission: condense.use
+
+permissions:
+  condense.use:
+    description: Allows use of /condense
+    default: true

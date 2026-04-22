@@ -1,80 +1,242 @@
-# TODO exemple item condense
+# ============================================================
+# Condense Plugin Configuration
+# ============================================================
+#
+# This plugin allows players to condense configured materials
+# directly from their inventory using the /condense command.
+#
+# Example:
+#   9 IRON_INGOT -> 1 IRON_BLOCK
+#
+# Only recipes listed under the "condense" section are allowed.
+# This default config includes reversible vanilla compression
+# recipes only, meaning the output can be crafted back into the
+# original ingredient.
+#
+# ============================================================
 
-language: "en"
+# ------------------------------------------------------------
+# Config version (used for automatic upgrades/migrations)
+# ------------------------------------------------------------
+# DO NOT CHANGE THIS VALUE MANUALLY.
+# The plugin uses this internally to determine if migrations
+# are required when updating to newer versions.
+config-version: 1
 
+
+# ------------------------------------------------------------
+# Display settings
+# ------------------------------------------------------------
 display:
+  # If true, the plugin will send a message for each successful
+  # conversion, such as:
+  #   "9 IRON_INGOT changed into 1 IRON_BLOCK."
+  #
+  # If false, players will only receive the final summary message.
   list: true
 
+
+# ------------------------------------------------------------
+# Requirement settings
+# ------------------------------------------------------------
+requirements:
+  # Controls whether players need access to a crafting table
+  # before /condense can be used.
+  #
+  # Available modes:
+  #
+  # DISABLED
+  #   No crafting table requirement.
+  #
+  # INVENTORY_ONLY
+  #   Player must have a crafting table item in inventory.
+  #
+  # NEARBY_ONLY
+  #   Player must be within crafting_table_range blocks of a
+  #   placed crafting table.
+  #
+  # INVENTORY_OR_NEARBY
+  #   Player can either have a crafting table in inventory OR
+  #   be within range of one in the world.
+  #
+  crafting_table_mode: INVENTORY_OR_NEARBY
+
+  # The maximum distance (in blocks) used when checking for a
+  # nearby crafting table.
+  #
+  # Only applies to:
+  #   NEARBY_ONLY
+  #   INVENTORY_OR_NEARBY
+  #
+  # Range is checked in 3D space.
+  crafting_table_range: 5
+
+
+# ------------------------------------------------------------
+# Validation settings
+# ------------------------------------------------------------
+validation:
+  # If true, the plugin will log a startup warning when a
+  # configured condense recipe does not appear to be reversible
+  # using the server's currently loaded crafting recipes.
+  warn_if_not_reversible: true
+
+  # If true, condense recipes that do not appear reversible in
+  # the currently loaded server recipes will be ignored by the
+  # plugin at runtime.
+  #
+  # This is useful for strict setups where only truly reversible
+  # storage-style compression should be allowed.
+  disable_non_reversible_recipes: false
+
+
+# ------------------------------------------------------------
+# Messages
+# ------------------------------------------------------------
+message:
+  condense:
+    # Sent once per successful conversion when display.list is enabled.
+    #
+    # Placeholders:
+    #   [item1] = consumed input amount and material
+    #   [item2] = produced output amount and material
+    item: "§a[item1] changed into [item2]."
+
+    # Sent after all conversions complete.
+    #
+    # Placeholders:
+    #   [number] = total number of output items created
+    resume: "§a[number] output items were created."
+
+  error:
+    # Sent when a recipe has invalid ratios
+    #
+    # Placeholders:
+    #   [item1] = input material name
+    ratio_zero: "§4ATTENTION: The conversion ratio of [item1] is invalid."
+
+    # Sent when inventory cannot fit output
+    #
+    # Placeholders:
+    #   [item1] = consumed input
+    #   [item2] = output attempted
+    inventory_full: "§4Inventory full: Impossible to change [item1] into [item2]."
+
+    # Sent when nothing could be condensed
+    nothing_to_condense: "§eYou do not have any valid materials to condense."
+
+    # Crafting table requirement messages
+    crafting_table_required_inventory: "§4You must have a crafting table in your inventory to use this command."
+    crafting_table_required_nearby: "§4You must be within [range] blocks of a crafting table to use this command."
+    crafting_table_required_inventory_or_nearby: "§4You need a crafting table to use this command. Put one in your inventory or stand within [range] blocks of one."
+
+    # Invalid config mode
+    invalid_crafting_table_mode: "§4This plugin is misconfigured: invalid crafting table mode '[mode]'. Please contact an admin."
+
+
+# ------------------------------------------------------------
+# Condense recipes
+# ------------------------------------------------------------
+#
+# Format:
+#
+#   INPUT_MATERIAL:
+#     output: OUTPUT_MATERIAL
+#     ratio_in: NUMBER_REQUIRED
+#     ratio_out: NUMBER_CREATED
+#
+# Notes:
+# - Material names must match Bukkit/Paper Material enum names
+# - Only reversible vanilla compression recipes are included
+# - These can be safely expanded if desired
+#
 condense:
   IRON_NUGGET:
     output: IRON_INGOT
     ratio_in: 9
     ratio_out: 1
+
   GOLD_NUGGET:
     output: GOLD_INGOT
     ratio_in: 9
     ratio_out: 1
-  COPPER_INGOT:
-    output: COPPER_BLOCK
-    ratio_in: 9
-    ratio_out: 1
+
   IRON_INGOT:
     output: IRON_BLOCK
     ratio_in: 9
     ratio_out: 1
-  RAW_IRON:
-    output: RAW_IRON_BLOCK
-    ratio_in: 9
-    ratio_out: 1
+
   GOLD_INGOT:
     output: GOLD_BLOCK
     ratio_in: 9
     ratio_out: 1
-  NETHERITE_INGOT:
-    output: NETHERITE_BLOCK
-    ratio_in: 9
-    ratio_out: 1
+
   DIAMOND:
     output: DIAMOND_BLOCK
     ratio_in: 9
     ratio_out: 1
+
   EMERALD:
     output: EMERALD_BLOCK
     ratio_in: 9
     ratio_out: 1
-  REDSTONE:
-    output: REDSTONE_BLOCK
-    ratio_in: 9
-    ratio_out: 1
+
   LAPIS_LAZULI:
     output: LAPIS_BLOCK
     ratio_in: 9
     ratio_out: 1
+
+  REDSTONE:
+    output: REDSTONE_BLOCK
+    ratio_in: 9
+    ratio_out: 1
+
+  COAL:
+    output: COAL_BLOCK
+    ratio_in: 9
+    ratio_out: 1
+
+  NETHERITE_INGOT:
+    output: NETHERITE_BLOCK
+    ratio_in: 9
+    ratio_out: 1
+
+  COPPER_INGOT:
+    output: COPPER_BLOCK
+    ratio_in: 9
+    ratio_out: 1
+
+  RAW_IRON:
+    output: RAW_IRON_BLOCK
+    ratio_in: 9
+    ratio_out: 1
+
+  RAW_GOLD:
+    output: RAW_GOLD_BLOCK
+    ratio_in: 9
+    ratio_out: 1
+
+  RAW_COPPER:
+    output: RAW_COPPER_BLOCK
+    ratio_in: 9
+    ratio_out: 1
+
   SLIME_BALL:
     output: SLIME_BLOCK
     ratio_in: 9
     ratio_out: 1
-  SNOWBALL:
-    output: SNOW_BLOCK
-    ratio_in: 4
-    ratio_out: 1
-  BONE_MEAL:
-    output: BONE_BLOCK
-    ratio_in: 9
-    ratio_out: 1
-  MELON_SLICE:
-    output: MELON
-    ratio_in: 9
-    ratio_out: 1
+
   WHEAT:
     output: HAY_BLOCK
     ratio_in: 9
     ratio_out: 1
 
-message:
-  condense:
-    resume: "§a[number] items have been transformed."
-    item: "§a[item1] change into [item2]."
-  error:
-    inventory_full: "§4Inventory full: impossible to change [item1] into [item2]."
-    ratio_zero: "§4Attention the conversion ratio of [item1] is equal to 0."
+  BONE_MEAL:
+    output: BONE_BLOCK
+    ratio_in: 9
+    ratio_out: 1
+
+  DRIED_KELP:
+    output: DRIED_KELP_BLOCK
+    ratio_in: 9
+    ratio_out: 1
