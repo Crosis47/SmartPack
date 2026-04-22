@@ -99,14 +99,14 @@ message:
     #
     # Placeholders:
     #   [item1] = consumed input amount and material
-    #   [item2] = produced output amount and material
-    item: "§a[item1] changed into [item2]."
+    #   [item2] = produced output amount and material + leftover material if any
+    item: "§a[item1] → [item2]."
 
     # Sent after all conversions complete.
     #
     # Placeholders:
     #   [number] = total number of output items created
-    resume: "§a[number] output items were created."
+    resume: "§aMaterials condensed to [number] block(s)."
 
   error:
     # Sent when a recipe has invalid ratios

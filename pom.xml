@@ -3,12 +3,12 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>rd156.minecraft</groupId>
-    <artifactId>condense</artifactId>
+    <groupId>crosis47.minecraft</groupId>
+    <artifactId>condense-reforged</artifactId>
     <version>1.1.0</version>
     <packaging>jar</packaging>
 
-    <name>Condense</name>
+    <name>Condense Reforged</name>
     <description>Paper plugin with a command to condense items into other items.</description>
 
     <properties>

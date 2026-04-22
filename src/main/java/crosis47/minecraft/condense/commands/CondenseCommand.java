@@ -225,7 +225,7 @@ public final class CondenseCommand implements CommandExecutor {
                 String message = getMessage(
                         "message.error.ratio_zero",
                         "§4Attention: the conversion ratio of [item1] is invalid."
-                ).replace("[item1]", input.name());
+                ).replace("[item1]", getItemName(input));
 
                 player.sendMessage(message);
 
@@ -238,7 +238,9 @@ public final class CondenseCommand implements CommandExecutor {
             int produced = tryCondense(player, inventory, input, available, output, ratioIn, ratioOut);
 
             if (produced > 0) {
-                itemCounts.put(input, available - ((available / ratioIn) * ratioIn));
+                int crafts = available / ratioIn;
+                int consumed = crafts * ratioIn;
+                itemCounts.put(input, available - consumed);
                 itemCounts.merge(output, produced, Integer::sum);
                 totalProduced += produced;
             }
@@ -263,6 +265,7 @@ public final class CondenseCommand implements CommandExecutor {
 
         int toConsume = crafts * ratioIn;
         int toProduce = crafts * ratioOut;
+        int leftoverInput = availableInput - toConsume;
 
         ItemStack[] simulated = cloneContents(inventory.getStorageContents());
 
@@ -275,8 +278,8 @@ public final class CondenseCommand implements CommandExecutor {
         Map<Integer, ItemStack> leftovers = addToContents(simulated, new ItemStack(output, toProduce));
         if (!leftovers.isEmpty()) {
             if (plugin.getConfig().getBoolean("display.list")) {
-                String item1 = toConsume + " " + input;
-                String item2 = toProduce + " " + output;
+                String item1 = formatItemAmount(toConsume, input);
+                String item2 = formatItemAmount(toProduce, output);
 
                 String message = getMessage(
                         "message.error.inventory_full",
@@ -292,12 +295,12 @@ public final class CondenseCommand implements CommandExecutor {
         inventory.setStorageContents(simulated);
 
         if (plugin.getConfig().getBoolean("display.list")) {
-            String item1 = toConsume + " " + input;
-            String item2 = toProduce + " " + output;
+            String item1 = formatItemAmount(availableInput, input);
+            String item2 = formatCondenseResult(toProduce, output, leftoverInput, input);
 
             String message = getMessage(
                     "message.condense.item",
-                    "§a[item1] changed into [item2]."
+                    "§a[item1] → [item2]"
             ).replace("[item1]", item1)
              .replace("[item2]", item2);
 
@@ -379,6 +382,29 @@ public final class CondenseCommand implements CommandExecutor {
     private String getMessage(final String path, final String fallback) {
         String value = plugin.getConfig().getString(path);
         return value == null ? fallback : value;
+    }
+
+    private String getItemName(final Material material) {
+        return new ItemStack(material).getI18NDisplayName();
+    }
+
+    private String formatItemAmount(final int amount, final Material material) {
+        return amount + " " + getItemName(material);
+    }
+
+    private String formatCondenseResult(
+            final int producedAmount,
+            final Material producedMaterial,
+            final int leftoverAmount,
+            final Material leftoverMaterial
+    ) {
+        String result = formatItemAmount(producedAmount, producedMaterial);
+
+        if (leftoverAmount > 0) {
+            result += " + " + formatItemAmount(leftoverAmount, leftoverMaterial);
+        }
+
+        return result;
     }
 
     private record RequirementCheckResult(boolean allowed, String message) {
