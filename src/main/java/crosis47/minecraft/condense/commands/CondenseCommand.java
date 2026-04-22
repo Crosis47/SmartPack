@@ -1,4 +1,4 @@
-package rd156.minecraft.condense.commands;
+package crosis47.minecraft.condense.commands;
 
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -12,8 +12,8 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.jetbrains.annotations.NotNull;
-import rd156.minecraft.condense.CondensePlugin;
-import rd156.minecraft.condense.requirements.CraftingTableMode;
+import crosis47.minecraft.condense.CondensePlugin;
+import crosis47.minecraft.condense.requirements.CraftingTableMode;
 
 import java.util.EnumMap;
 import java.util.HashMap;

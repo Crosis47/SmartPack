@@ -1,4 +1,4 @@
-package rd156.minecraft.condense.requirements;
+package crosis47.minecraft.condense.requirements;
 
 public enum CraftingTableMode {
     DISABLED,

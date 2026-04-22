@@ -1,8 +1,8 @@
-name: Condense
+name: Condense Reforged
 version: '${project.version}'
-main: rd156.minecraft.condense.CondensePlugin
+main: crosis47.minecraft.condense.CondensePlugin
 api-version: '1.21.11'
-authors: [ rd156 ]
+authors: [ Crosis47 ]
 description: Paper plugin with a command to condense items into other items.
 
 commands:
