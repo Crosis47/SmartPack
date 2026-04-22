@@ -1,4 +1,4 @@
-name: Condense Reforged
+name: CondenseReforged
 version: '${project.version}'
 main: crosis47.minecraft.condense.CondensePlugin
 api-version: '1.21.11'
