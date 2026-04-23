@@ -94,8 +94,10 @@ public final class CondenseCommand implements TabExecutor {
 
         String message = getMessage(
                 "message.condense.resume",
-                "§a[number] output items were created."
-        ).replace("[number]", String.valueOf(result.totalProduced()));
+                "§aConverted [input] items into [output] output items."
+        )
+                .replace("[input]", String.valueOf(result.totalInputConsumed()))
+                .replace("[output]", String.valueOf(result.totalProduced()));
 
         player.sendMessage(message);
 
@@ -270,10 +272,11 @@ public final class CondenseCommand implements TabExecutor {
         ConfigurationSection condenseSection = plugin.getConfig().getConfigurationSection("condense");
         if (condenseSection == null) {
             plugin.getLogger().warning("Missing 'condense' section in config.yml");
-            return new CondenseResult(0, false, false, false, 0, Collections.emptyMap());
+            return new CondenseResult(0, 0, false, false, false, 0, Collections.emptyMap());
         }
 
         int totalProduced = 0;
+        int totalInputConsumed = 0;
         boolean hadValidAttempt = false;
         boolean blockedByCraftingRequirement = false;
         boolean usedSmallRecipeBypass = false;
@@ -282,6 +285,7 @@ public final class CondenseCommand implements TabExecutor {
             PassResult passResult = runCondensePass(player, inventory, condenseSection, craftingState);
 
             totalProduced += passResult.produced();
+            totalInputConsumed += passResult.inputConsumed();
             hadValidAttempt |= passResult.hadValidAttempt();
             blockedByCraftingRequirement |= passResult.blockedByCraftingRequirement();
             usedSmallRecipeBypass |= passResult.usedSmallRecipeBypass();
@@ -295,6 +299,7 @@ public final class CondenseCommand implements TabExecutor {
 
         return new CondenseResult(
                 totalProduced,
+                totalInputConsumed,
                 hadValidAttempt,
                 blockedByCraftingRequirement,
                 usedSmallRecipeBypass,
@@ -320,6 +325,7 @@ public final class CondenseCommand implements TabExecutor {
         }
 
         int passProduced = 0;
+        int inputConsumed = 0;
         boolean hadValidAttempt = false;
         boolean madeAnyChange = false;
         boolean blockedByCraftingRequirement = false;
@@ -403,6 +409,7 @@ public final class CondenseCommand implements TabExecutor {
 
                 int crafts = available / ratioIn;
                 int consumed = crafts * ratioIn;
+                inputConsumed += consumed;
                 itemCounts.put(input, available - consumed);
                 itemCounts.merge(output, attempt.produced(), Integer::sum);
             }
@@ -410,6 +417,7 @@ public final class CondenseCommand implements TabExecutor {
 
         return new PassResult(
                 passProduced,
+                inputConsumed,
                 hadValidAttempt,
                 madeAnyChange,
                 blockedByCraftingRequirement,
@@ -750,6 +758,7 @@ public final class CondenseCommand implements TabExecutor {
 
     private record PassResult(
             int produced,
+            int inputConsumed,
             boolean hadValidAttempt,
             boolean madeAnyChange,
             boolean blockedByCraftingRequirement,
@@ -772,6 +781,7 @@ public final class CondenseCommand implements TabExecutor {
 
     private record CondenseResult(
             int totalProduced,
+            int totalInputConsumed,
             boolean hadValidAttempt,
             boolean blockedByCraftingRequirement,
             boolean usedSmallRecipeBypass,

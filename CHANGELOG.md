@@ -19,12 +19,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - Displays a message when additional materials could be condensed at a crafting table after small recipes are processed.
 - Added new configurable message:
   - `message.info.more_available_at_crafting_table`
+- Added total input tracking to condense operations.
+  - Final summary message now displays both total input items consumed and total output items produced.
+  - Example: `Converted 117 items into 13 output items.`
 
 ### Changed
 - Refactored crafting table requirement logic from a **global command check** to a **per-recipe evaluation system**.
 - Mixed inventory behavior improved:
   - Small recipes (≤ threshold) can now condense even if larger recipes are blocked by crafting requirements.
 - Improved overall command flow so that valid partial condenses are not blocked by unrelated requirements.
+- Updated final summary message format to include both input and output totals.
 - Updated config documentation to clarify that the default bypass value of `4` is based on the player crafting grid size.
 
 ### Fixed

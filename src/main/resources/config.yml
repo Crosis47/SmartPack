@@ -101,7 +101,7 @@ message:
     #
     # Placeholders:
     #   [number] = total number of output items created
-    resume: "§aMaterials condensed to [number] block(s)."
+    resume: "§a[input] Materials condensed to [output] block(s)."
 
   # Sent after converting small recipes without crafting table if anny large recipes available
   info:
