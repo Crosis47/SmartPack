@@ -68,6 +68,16 @@ public final class CondenseCommand implements TabExecutor {
         CondenseResult result = condense(player);
 
         if (result.totalProduced() == 0) {
+            if (result.totalAdditionalSlotsNeeded() > 0) {
+                String summary = getMessage(
+                        "message.error.inventory_full_summary",
+                        "§6Inventory full summary: [slots] additional slot(s) would have been needed in total."
+                ).replace("[slots]", String.valueOf(result.totalAdditionalSlotsNeeded()));
+
+                player.sendMessage(summary);
+                return true;
+            }
+
             if (!result.hadValidAttempt()) {
                 String message = getMessage(
                         "message.error.nothing_to_condense",
@@ -84,6 +94,16 @@ public final class CondenseCommand implements TabExecutor {
         ).replace("[number]", String.valueOf(result.totalProduced()));
 
         player.sendMessage(message);
+
+        if (result.totalAdditionalSlotsNeeded() > 0) {
+            String summary = getMessage(
+                    "message.error.inventory_full_summary",
+                    "§6Inventory full summary: [slots] additional slot(s) would have been needed in total."
+            ).replace("[slots]", String.valueOf(result.totalAdditionalSlotsNeeded()));
+
+            player.sendMessage(summary);
+        }
+
         return true;
     }
 
@@ -227,11 +247,12 @@ public final class CondenseCommand implements TabExecutor {
         ConfigurationSection condenseSection = plugin.getConfig().getConfigurationSection("condense");
         if (condenseSection == null) {
             plugin.getLogger().warning("Missing 'condense' section in config.yml");
-            return new CondenseResult(0, false);
+            return new CondenseResult(0, false, 0);
         }
 
         int totalProduced = 0;
         boolean hadValidAttempt = false;
+        int totalAdditionalSlotsNeeded = 0;
 
         for (String key : condenseSection.getKeys(false)) {
             ConfigurationSection rule = condenseSection.getConfigurationSection(key);
@@ -281,21 +302,22 @@ public final class CondenseCommand implements TabExecutor {
 
             hadValidAttempt = true;
 
-            int produced = tryCondense(player, inventory, input, available, output, ratioIn, ratioOut);
+            AttemptResult attempt = tryCondense(player, inventory, input, available, output, ratioIn, ratioOut);
+            totalAdditionalSlotsNeeded += attempt.additionalSlotsNeeded();
 
-            if (produced > 0) {
+            if (attempt.produced() > 0) {
                 int crafts = available / ratioIn;
                 int consumed = crafts * ratioIn;
                 itemCounts.put(input, available - consumed);
-                itemCounts.merge(output, produced, Integer::sum);
-                totalProduced += produced;
+                itemCounts.merge(output, attempt.produced(), Integer::sum);
+                totalProduced += attempt.produced();
             }
         }
 
-        return new CondenseResult(totalProduced, hadValidAttempt);
+        return new CondenseResult(totalProduced, hadValidAttempt, totalAdditionalSlotsNeeded);
     }
 
-    private int tryCondense(
+    private AttemptResult tryCondense(
             final Player player,
             final PlayerInventory inventory,
             final Material input,
@@ -306,7 +328,7 @@ public final class CondenseCommand implements TabExecutor {
     ) {
         int crafts = availableInput / ratioIn;
         if (crafts <= 0) {
-            return 0;
+            return new AttemptResult(0, 0);
         }
 
         int toConsume = crafts * ratioIn;
@@ -318,24 +340,26 @@ public final class CondenseCommand implements TabExecutor {
         boolean removed = removeFromContents(simulated, input, toConsume);
         if (!removed) {
             plugin.getLogger().warning("Failed to remove expected input items for " + input);
-            return 0;
+            return new AttemptResult(0, 0);
         }
 
         Map<Integer, ItemStack> leftovers = addToContents(simulated, new ItemStack(output, toProduce));
         if (!leftovers.isEmpty()) {
+            int additionalSlotsNeeded = calculateAdditionalSlotsNeeded(leftovers, output.getMaxStackSize());
+
             if (plugin.getConfig().getBoolean("display.list")) {
-                String item1 = formatItemAmount(toConsume, input);
-                String item2 = formatItemAmount(toProduce, output);
+                String fullInput = formatItemAmount(availableInput, input);
+                String result = formatCondenseResult(toProduce, output, leftoverInput, input);
 
                 String message = getMessage(
                         "message.error.inventory_full",
-                        "§4Inventory full: impossible to change [item1] into [item2]."
-                ).replace("[item1]", item1)
-                 .replace("[item2]", item2);
+                        "§4Inventory full: [item1] → [item2]"
+                ).replace("[item1]", fullInput)
+                 .replace("[item2]", result);
 
                 player.sendMessage(message);
             }
-            return 0;
+            return new AttemptResult(0, additionalSlotsNeeded);
         }
 
         inventory.setStorageContents(simulated);
@@ -353,7 +377,19 @@ public final class CondenseCommand implements TabExecutor {
             player.sendMessage(message);
         }
 
-        return toProduce;
+        return new AttemptResult(toProduce, 0);
+    }
+
+    private int calculateAdditionalSlotsNeeded(final Map<Integer, ItemStack> leftovers, final int maxStackSize) {
+        int totalRemainingItems = 0;
+
+        for (ItemStack leftover : leftovers.values()) {
+            if (leftover != null) {
+                totalRemainingItems += leftover.getAmount();
+            }
+        }
+
+        return (int) Math.ceil((double) totalRemainingItems / maxStackSize);
     }
 
     private ItemStack[] cloneContents(final ItemStack[] original) {
@@ -463,6 +499,9 @@ public final class CondenseCommand implements TabExecutor {
         }
     }
 
-    private record CondenseResult(int totalProduced, boolean hadValidAttempt) {
+    private record AttemptResult(int produced, int additionalSlotsNeeded) {
+    }
+
+    private record CondenseResult(int totalProduced, boolean hadValidAttempt, int totalAdditionalSlotsNeeded) {
     }
 }
