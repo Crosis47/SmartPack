@@ -59,7 +59,7 @@ requirements:
   #   Player can either have a crafting table in inventory OR
   #   be within range of one in the world.
   #
-  crafting_table_mode: INVENTORY_OR_NEARBY
+  crafting_table_mode: NEARBY_ONLY
 
   # The maximum distance (in blocks) used when checking for a
   # nearby crafting table.
