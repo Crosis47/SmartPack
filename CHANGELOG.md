@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.1.1] - 2026-04-23
+
+### Fixed
+- Removed unused `RequirementCheckResult` record and associated methods.
+- Eliminated IDE warnings related to dead code.
+
+### Changed
+- Minor internal code cleanup following previous refactors.
+- No functional or behavioral changes.
+
+---
+
 ## [1.1.0] - 2026-04-23
 
 ### Added
