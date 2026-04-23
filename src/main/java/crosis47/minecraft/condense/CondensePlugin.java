@@ -10,6 +10,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.inventory.CraftingRecipe;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.Recipe;
+import org.bukkit.inventory.RecipeChoice;
 import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.inventory.ShapelessRecipe;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -292,12 +293,12 @@ public final class CondensePlugin extends JavaPlugin {
     ) {
         int count = 0;
 
-        for (ItemStack ingredient : recipe.getIngredientMap().values()) {
-            if (ingredient == null) {
+        for (RecipeChoice choice : recipe.getChoiceMap().values()) {
+            if (choice == null) {
                 continue;
             }
 
-            if (ingredient.getType() != source || ingredient.getAmount() != 1) {
+            if (!matchesSingleMaterialChoice(choice, source)) {
                 return false;
             }
 
@@ -312,21 +313,32 @@ public final class CondensePlugin extends JavaPlugin {
             final Material source,
             final int expectedCount
     ) {
-        List<ItemStack> ingredients = recipe.getIngredientList();
-        if (ingredients.size() != expectedCount) {
+        List<RecipeChoice> choices = recipe.getChoiceList();
+        if (choices.size() != expectedCount) {
             return false;
         }
 
-        for (ItemStack ingredient : ingredients) {
-            if (ingredient == null) {
-                return false;
-            }
-
-            if (ingredient.getType() != source || ingredient.getAmount() != 1) {
+        for (RecipeChoice choice : choices) {
+            if (choice == null || !matchesSingleMaterialChoice(choice, source)) {
                 return false;
             }
         }
 
         return true;
+    }
+
+    private boolean matchesSingleMaterialChoice(final RecipeChoice choice, final Material source) {
+        if (choice instanceof RecipeChoice.MaterialChoice materialChoice) {
+            return materialChoice.getChoices().size() == 1
+                    && materialChoice.getChoices().contains(source);
+        }
+
+        if (choice instanceof RecipeChoice.ExactChoice exactChoice) {
+            return exactChoice.getChoices().size() == 1
+                    && exactChoice.getChoices().getFirst().getType() == source
+                    && exactChoice.getChoices().getFirst().getAmount() == 1;
+        }
+
+        return false;
     }
 }
