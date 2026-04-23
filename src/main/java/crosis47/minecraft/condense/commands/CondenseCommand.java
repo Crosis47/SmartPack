@@ -1,25 +1,28 @@
 package crosis47.minecraft.condense.commands;
 
+import crosis47.minecraft.condense.CondensePlugin;
+import crosis47.minecraft.condense.requirements.CraftingTableMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.command.Command;
-import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.command.TabExecutor;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.jetbrains.annotations.NotNull;
-import crosis47.minecraft.condense.CondensePlugin;
-import crosis47.minecraft.condense.requirements.CraftingTableMode;
 
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
-public final class CondenseCommand implements CommandExecutor {
+public final class CondenseCommand implements TabExecutor {
 
     private final CondensePlugin plugin;
 
@@ -34,6 +37,23 @@ public final class CondenseCommand implements CommandExecutor {
             @NotNull String label,
             @NotNull String[] args
     ) {
+        if (args.length > 0 && args[0].equalsIgnoreCase("reload")) {
+            if (!sender.hasPermission("condense.reload")) {
+                sender.sendMessage(getMessage(
+                        "message.error.no_permission",
+                        "§cYou do not have permission to use this command."
+                ));
+                return true;
+            }
+
+            plugin.reloadPluginConfig();
+            sender.sendMessage(getMessage(
+                    "message.reload",
+                    "§aCondense Reforged config reloaded."
+            ));
+            return true;
+        }
+
         if (!(sender instanceof Player player)) {
             sender.sendMessage("This command can only be used by a player.");
             return true;
@@ -65,6 +85,23 @@ public final class CondenseCommand implements CommandExecutor {
 
         player.sendMessage(message);
         return true;
+    }
+
+    @Override
+    public List<String> onTabComplete(
+            @NotNull CommandSender sender,
+            @NotNull Command command,
+            @NotNull String alias,
+            @NotNull String[] args
+    ) {
+        if (args.length == 1 && sender.hasPermission("condense.reload")) {
+            String input = args[0].toLowerCase(Locale.ROOT);
+            if ("reload".startsWith(input)) {
+                return Collections.singletonList("reload");
+            }
+        }
+
+        return Collections.emptyList();
     }
 
     private RequirementCheckResult checkCraftingTableRequirement(final Player player) {

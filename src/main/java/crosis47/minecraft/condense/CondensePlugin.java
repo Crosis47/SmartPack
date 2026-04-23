@@ -1,5 +1,6 @@
 package crosis47.minecraft.condense;
 
+import crosis47.minecraft.condense.commands.CondenseCommand;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.command.PluginCommand;
@@ -12,7 +13,6 @@ import org.bukkit.inventory.Recipe;
 import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.inventory.ShapelessRecipe;
 import org.bukkit.plugin.java.JavaPlugin;
-import crosis47.minecraft.condense.commands.CondenseCommand;
 
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -40,7 +40,10 @@ public final class CondensePlugin extends JavaPlugin {
                 getCommand("condense"),
                 "Command 'condense' is missing from plugin.yml"
         );
-        condenseCommand.setExecutor(new CondenseCommand(this));
+
+        CondenseCommand commandHandler = new CondenseCommand(this);
+        condenseCommand.setExecutor(commandHandler);
+        condenseCommand.setTabCompleter(commandHandler);
 
         getLogger().info("Condense Reforged enabled.");
     }
@@ -48,6 +51,12 @@ public final class CondensePlugin extends JavaPlugin {
     @Override
     public void onDisable() {
         getLogger().info("Condense Reforged disabled.");
+    }
+
+    public void reloadPluginConfig() {
+        reloadConfig();
+        updateConfigIfNeeded();
+        validateConfig();
     }
 
     public boolean isCondenseInputDisabled(final Material material) {

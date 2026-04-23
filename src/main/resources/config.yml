@@ -94,12 +94,14 @@ validation:
 # Messages
 # ------------------------------------------------------------
 message:
+  # Sent after /condense reload succeeds.
+  reload: "§aCondense Reforged config reloaded."
   condense:
     # Sent once per successful conversion when display.list is enabled.
     #
     # Placeholders:
     #   [item1] = consumed input amount and material
-    #   [item2] = produced output amount and material + leftover material if any
+    #   [item2] = produced result, plus leftover input if any
     item: "§a[item1] → [item2]."
 
     # Sent after all conversions complete.
@@ -109,6 +111,9 @@ message:
     resume: "§aMaterials condensed to [number] block(s)."
 
   error:
+    # Sent when a player lacks permission for /condense reload
+    no_permission: "§cYou do not have permission to use this command."
+
     # Sent when a recipe has invalid ratios
     #
     # Placeholders:
@@ -120,7 +125,7 @@ message:
     # Placeholders:
     #   [item1] = consumed input
     #   [item2] = output attempted
-    inventory_full: "§4Inventory full: Impossible to change [item1] into [item2]."
+    inventory_full: "§4Inventory Full: Impossible to change [item1] into [item2]."
 
     # Sent when nothing could be condensed
     nothing_to_condense: "§eYou do not have any valid materials to condense."
