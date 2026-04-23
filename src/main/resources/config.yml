@@ -3,7 +3,7 @@
 # ============================================================
 #
 # This plugin allows players to condense configured materials
-# directly from their inventory using the /condense command.
+# directly from their inventory.
 #
 # Example:
 #   9 IRON_INGOT -> 1 IRON_BLOCK
@@ -21,7 +21,38 @@
 # DO NOT CHANGE THIS VALUE MANUALLY.
 # The plugin uses this internally to determine if migrations
 # are required when updating to newer versions.
-config-version: 1
+config-version: 3
+
+
+# ------------------------------------------------------------
+# Activation settings
+# ------------------------------------------------------------
+activation:
+  # Controls how players trigger condensing. Changing this setting requires a server restart.
+  # Options:
+  #   COMMAND         - Players use /condense
+  #   CONDENSER_ITEM  - Players must use the special Condenser item
+  mode: COMMAND
+
+  condenser_item:
+    # The Condenser is a named crafting table with an enchantment glint.
+    # The recipe below is only registered when activation.mode is CONDENSER_ITEM.
+    # While this mode is active, crafting table requirements are ignored.
+    # The Condenser item itself also cannot be placed as a block.
+    #
+    # If true, players may also use /condense while carrying a Condenser.
+    # If false, condensing is locked to right-clicking the Condenser in inventory.
+    allow_command_with_item: false
+
+    recipe:
+      shape:
+        - "IRI"
+        - "RCR"
+        - "IRI"
+      ingredients:
+        I: IRON_INGOT
+        R: REDSTONE
+        C: CRAFTING_TABLE
 
 
 # ------------------------------------------------------------
@@ -40,6 +71,7 @@ display:
 # Requirement settings
 # ------------------------------------------------------------
 requirements:
+  # These settings are only used when activation.mode is COMMAND.
   # Controls how a crafting table is required for condensing.
   # Options:
   #   DISABLED            - No crafting table required
@@ -95,21 +127,26 @@ message:
     # Placeholders:
     #   [item1] = consumed input amount and material
     #   [item2] = produced result, plus leftover input if any
-    item: "§a[item1] → [item2]."
+    item: "§a[item1] -> [item2]."
 
     # Sent after all conversions complete.
     #
     # Placeholders:
-    #   [number] = total number of output items created
+    #   [input] = total number of input items consumed
+    #   [output] = total number of output items created
     resume: "§a[input] Materials condensed to [output] block(s)."
 
-  # Sent after converting small recipes without crafting table if anny large recipes available
+  # Informational messages
   info:
     more_available_at_crafting_table: "§7More materials can be condensed at a crafting table."
+    use_condenser_item: "§eUse a Condenser from your inventory to condense materials."
 
   error:
-    # Sent when a player lacks permission for /condense reload
+    # Sent when a player lacks permission for a Condense action
     no_permission: "§cYou do not have permission to use this command."
+
+    # Sent when item mode allows /condense, but the player is not carrying a Condenser
+    condenser_item_required: "§cYou must have a Condenser in your inventory to use this command."
 
     # Sent when a recipe has invalid ratios
     #
@@ -122,9 +159,9 @@ message:
     # Placeholders:
     #   [item1] = consumed input
     #   [item2] = output attempted
-    inventory_full: "§4Inventory full: [item1] → [item2]"
+    inventory_full: "§4Inventory full: [item1] -> [item2]"
     inventory_full_summary: "§6Inventory full summary: [slots] additional slot(s) needed."
-    
+
     # Sent when nothing could be condensed
     nothing_to_condense: "§eYou do not have any valid materials to condense."
 

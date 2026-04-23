@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.2.1] - 2026-04-23
+
+### Added
+- Added automatic Condenser cleanup while the plugin is running in `COMMAND` mode.
+- Added cleanup coverage for:
+  - online players during plugin startup
+  - online players during `/condense reload`
+  - players joining the server with stale Condensers in saved inventory data
+
+### Fixed
+- Removed leftover Condenser items from player inventories after switching away from `CONDENSER_ITEM` mode.
+- Prevented stale Condenser items from persisting for players who were offline during a mode change until they rejoined.
+
+### Changed
+- Updated documentation to clarify that `COMMAND` mode automatically purges leftover Condenser items from player inventories.
+
+---
+
+## [1.2.0] - 2026-04-23
+
+### Added
+- Added a new activation system with two modes:
+  - `COMMAND`
+  - `CONDENSER_ITEM`
+- Added a custom **Condenser** item mode:
+  - The item is a named crafting table with an enchantment glint.
+  - Players can trigger condensing by right-clicking the Condenser in their inventory.
+- Added configurable Condenser recipe support in `config.yml`.
+- Added conditional recipe registration so the Condenser crafting recipe only exists on the server while `activation.mode` is `CONDENSER_ITEM`.
+- Added `activation.condenser_item.allow_command_with_item` so server admins can choose between:
+  - item-only activation
+  - both item activation and `/condense` while carrying a Condenser
+- Added validation and runtime handling for identifying Condenser items using persistent item data.
+- Added a new player-facing message for item mode:
+  - `message.info.use_condenser_item`
+- Added a new player-facing error when `/condense` is allowed in item mode but the player is not carrying a Condenser:
+  - `message.error.condenser_item_required`
+
+### Changed
+- Increased the bundled config format version from `1` to `3`.
+- Updated the condense flow so command and item activation paths share the same core execution logic.
+- Updated `/condense` behavior in `CONDENSER_ITEM` mode:
+  - When `allow_command_with_item` is `false`, the command redirects players to use the Condenser item.
+  - When `allow_command_with_item` is `true`, the command only works if the player is carrying a Condenser.
+- Updated activation-mode behavior so crafting table requirement settings under `requirements.*` only apply in `COMMAND` mode.
+- Updated documentation to describe activation modes, Condenser item behavior, and the new configuration options.
+
+### Fixed
+- Fixed item mode incorrectly still enforcing crafting table requirements when `allow_command_with_item` was enabled.
+- Prevented the Condenser item from being placed as a block.
+
+---
+
 ## [1.1.1] - 2026-04-23
 
 ### Fixed

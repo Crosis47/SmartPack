@@ -5,6 +5,7 @@ import crosis47.minecraft.condense.requirements.CraftingTableMode;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import net.kyori.adventure.translation.GlobalTranslator;
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -14,6 +15,11 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabExecutor;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.jetbrains.annotations.NotNull;
@@ -25,7 +31,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-public final class CondenseCommand implements TabExecutor {
+public final class CondenseCommand implements TabExecutor, Listener {
 
     private final CondensePlugin plugin;
 
@@ -62,10 +68,88 @@ public final class CondenseCommand implements TabExecutor {
             return true;
         }
 
+        if (plugin.isCondenserItemModeEnabled()) {
+            if (!plugin.isCondenserCommandAllowed()) {
+                player.sendMessage(getMessage(
+                        "message.info.use_condenser_item",
+                        "§eUse a Condenser from your inventory to condense materials."
+                ));
+                return true;
+            }
+
+            if (!plugin.hasCondenserItem(player.getInventory().getStorageContents())) {
+                player.sendMessage(getMessage(
+                        "message.error.condenser_item_required",
+                        "§cYou must have a Condenser in your inventory to use this command."
+                ));
+                return true;
+            }
+        }
+
+        executeCondense(player);
+        return true;
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onInventoryClick(final InventoryClickEvent event) {
+        if (!plugin.isCondenserItemModeEnabled()) {
+            return;
+        }
+
+        if (!(event.getWhoClicked() instanceof Player player)) {
+            return;
+        }
+
+        if (!(event.getClickedInventory() instanceof PlayerInventory)) {
+            return;
+        }
+
+        if (!event.getClick().isRightClick()) {
+            return;
+        }
+
+        if (!plugin.isCondenserItem(event.getCurrentItem())) {
+            return;
+        }
+
+        event.setCancelled(true);
+
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (!player.isOnline()) {
+                return;
+            }
+
+            if (!player.hasPermission("condense.use")) {
+                player.sendMessage(getMessage(
+                        "message.error.no_permission",
+                        "§cYou do not have permission to use this command."
+                ));
+                return;
+            }
+
+            executeCondense(player);
+        });
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onBlockPlace(final BlockPlaceEvent event) {
+        if (!plugin.isCondenserItem(event.getItemInHand())) {
+            return;
+        }
+
+        event.setCancelled(true);
+    }
+
+    @EventHandler
+    public void onPlayerJoin(final PlayerJoinEvent event) {
+        plugin.cleanupCondenserItems(event.getPlayer());
+    }
+
+    public void executeCondense(final Player player) {
         CraftingRequirementState craftingState = getCraftingRequirementState(player);
         if (!craftingState.valid()) {
             player.sendMessage(craftingState.failureMessage());
-            return true;
+            return;
         }
 
         CondenseResult result = condense(player, craftingState);
@@ -74,12 +158,12 @@ public final class CondenseCommand implements TabExecutor {
             if (result.totalAdditionalSlotsNeeded() > 0) {
                 sendInventoryFullMessages(player, result.inventoryFailures());
                 sendInventoryFullSummary(player, result.totalAdditionalSlotsNeeded());
-                return true;
+                return;
             }
 
             if (result.blockedByCraftingRequirement()) {
                 player.sendMessage(buildCraftingRequirementFailureMessage(craftingState));
-                return true;
+                return;
             }
 
             if (!result.hadValidAttempt()) {
@@ -89,7 +173,7 @@ public final class CondenseCommand implements TabExecutor {
                 );
                 player.sendMessage(message);
             }
-            return true;
+            return;
         }
 
         String message = getMessage(
@@ -113,8 +197,6 @@ public final class CondenseCommand implements TabExecutor {
             sendInventoryFullMessages(player, result.inventoryFailures());
             sendInventoryFullSummary(player, result.totalAdditionalSlotsNeeded());
         }
-
-        return true;
     }
 
     @Override
@@ -135,6 +217,19 @@ public final class CondenseCommand implements TabExecutor {
     }
 
     private CraftingRequirementState getCraftingRequirementState(final Player player) {
+        if (plugin.isCondenserItemModeEnabled()) {
+            return new CraftingRequirementState(
+                    true,
+                    "",
+                    CraftingTableMode.DISABLED,
+                    0,
+                    false,
+                    false,
+                    false,
+                    0
+            );
+        }
+
         String rawMode = plugin.getConfig().getString("requirements.crafting_table_mode", "DISABLED");
         int range = Math.max(0, plugin.getConfig().getInt("requirements.crafting_table_range", 5));
 

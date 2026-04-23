@@ -10,9 +10,11 @@ This project is a fork of the original MinecraftCondensePlugin by `rd156`.
 
 - Condenses items using recipes defined in `config.yml`
 - Works directly from the player's inventory
+- Supports both command activation and Condenser item activation
 - Supports optional crafting-table requirements
 - Can allow small recipes to bypass the crafting-table requirement
 - Simulates inventory changes before applying them to prevent item loss
+- Automatically removes leftover Condenser items while running in `COMMAND` mode
 - Warns about non-reversible recipes and can disable them automatically
 - Reloads configuration in game with `/condense reload`
 
@@ -49,6 +51,10 @@ The built jar will be created in `target/` as `condense-reforged-<version>.jar`.
 
 `/condense` is player-only. `/condense reload` can be run by any sender with permission.
 
+If `activation.mode` is set to `CONDENSER_ITEM`, regular condensing is triggered by right-clicking the special Condenser item in the player's own inventory.
+
+Admins can also enable `/condense` in item mode with `activation.condenser_item.allow_command_with_item: true`. When that toggle is on, the command only works if the player is carrying a Condenser.
+
 ## Permissions
 
 | Permission | Description | Default |
@@ -68,6 +74,28 @@ When a player runs `/condense`, the plugin:
 
 If the output would not fit, the plugin leaves the inventory unchanged for that conversion and reports how many extra slots would have been needed.
 
+When `activation.mode` is `CONDENSER_ITEM`, the same condense flow is triggered by right-clicking the Condenser item in the player's inventory. The Condenser is a custom crafting table item with a glint and a configurable recipe.
+
+In Condenser item mode, the plugin ignores the `requirements.*` crafting-table checks entirely. The Condenser item itself is also not placeable as a block.
+
+## Activation Modes
+
+`activation.mode` supports two modes:
+
+| Mode | Behavior |
+| --- | --- |
+| `COMMAND` | Players use `/condense` |
+| `CONDENSER_ITEM` | Players use a crafted Condenser item in their inventory |
+
+The Condenser recipe is only registered with the server when `activation.mode` is `CONDENSER_ITEM`.
+
+When the plugin is running in `COMMAND` mode, it automatically removes leftover Condenser items from player inventories on startup, on `/condense reload`, and when players join.
+
+`activation.condenser_item.allow_command_with_item` controls whether `/condense` is also available in item mode:
+
+- `false`: players must right-click the Condenser in inventory
+- `true`: players can either right-click the Condenser or use `/condense`, but only while carrying a Condenser
+
 ## Crafting Table Requirement Modes
 
 `requirements.crafting_table_mode` supports four modes:
@@ -78,6 +106,8 @@ If the output would not fit, the plugin leaves the inventory unchanged for that 
 | `INVENTORY_ONLY` | The player must carry a crafting table |
 | `NEARBY_ONLY` | The player must be within range of a placed crafting table |
 | `INVENTORY_OR_NEARBY` | Either condition is accepted |
+
+These settings only apply when `activation.mode` is `COMMAND`.
 
 Related settings:
 
@@ -124,6 +154,7 @@ You can add or remove entries under the `condense:` section to customize the beh
 The main config sections are:
 
 - `config-version`: internal migration/version marker
+- `activation.*`: command vs Condenser-item activation, including whether `/condense` is allowed in item mode
 - `display.list`: enables per-conversion chat output
 - `requirements.*`: crafting-table requirement behavior
 - `validation.*`: reversible recipe warnings and disabling

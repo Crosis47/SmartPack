@@ -1,19 +1,24 @@
 package crosis47.minecraft.condense;
 
 import crosis47.minecraft.condense.commands.CondenseCommand;
+import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.entity.Player;
 import org.bukkit.inventory.CraftingRecipe;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.Recipe;
 import org.bukkit.inventory.RecipeChoice;
 import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.inventory.ShapelessRecipe;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.persistence.PersistentDataType;
 
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -27,12 +32,19 @@ import java.util.Set;
 
 public final class CondensePlugin extends JavaPlugin {
 
-    private static final int CURRENT_CONFIG_VERSION = 1;
+    private static final int CURRENT_CONFIG_VERSION = 3;
+    private static final String DEFAULT_CONDENSER_NAME = "Condenser";
 
     private final Set<Material> disabledCondenseInputs = new HashSet<>();
 
+    private NamespacedKey condenserRecipeKey;
+    private NamespacedKey condenserItemKey;
+
     @Override
     public void onEnable() {
+        condenserRecipeKey = new NamespacedKey(this, "condenser");
+        condenserItemKey = new NamespacedKey(this, "condenser_item");
+
         saveDefaultConfig();
         updateConfigIfNeeded();
         validateConfig();
@@ -45,12 +57,17 @@ public final class CondensePlugin extends JavaPlugin {
         CondenseCommand commandHandler = new CondenseCommand(this);
         condenseCommand.setExecutor(commandHandler);
         condenseCommand.setTabCompleter(commandHandler);
+        getServer().getPluginManager().registerEvents(commandHandler, this);
+
+        refreshCondenserRecipe();
+        cleanupCondenserItemsForOnlinePlayers();
 
         getLogger().info("Condense Reforged enabled.");
     }
 
     @Override
     public void onDisable() {
+        unregisterCondenserRecipe();
         getLogger().info("Condense Reforged disabled.");
     }
 
@@ -58,6 +75,8 @@ public final class CondensePlugin extends JavaPlugin {
         reloadConfig();
         updateConfigIfNeeded();
         validateConfig();
+        refreshCondenserRecipe();
+        cleanupCondenserItemsForOnlinePlayers();
     }
 
     public boolean isCondenseInputDisabled(final Material material) {
@@ -66,6 +85,103 @@ public final class CondensePlugin extends JavaPlugin {
 
     public Set<Material> getDisabledCondenseInputs() {
         return Collections.unmodifiableSet(disabledCondenseInputs);
+    }
+
+    public ActivationMode getActivationMode() {
+        String rawMode = getConfig().getString("activation.mode", "COMMAND");
+        ActivationMode mode = ActivationMode.fromString(rawMode);
+        if (mode == null) {
+            return ActivationMode.COMMAND;
+        }
+
+        return mode;
+    }
+
+    public boolean isCondenserItemModeEnabled() {
+        return getActivationMode() == ActivationMode.CONDENSER_ITEM;
+    }
+
+    public boolean isCondenserCommandAllowed() {
+        return getConfig().getBoolean("activation.condenser_item.allow_command_with_item", false);
+    }
+
+    public ItemStack createCondenserItem() {
+        ItemStack item = new ItemStack(Material.CRAFTING_TABLE);
+        ItemMeta meta = item.getItemMeta();
+
+        meta.displayName(Component.text(DEFAULT_CONDENSER_NAME));
+        meta.setEnchantmentGlintOverride(true);
+        meta.getPersistentDataContainer().set(condenserItemKey, PersistentDataType.BYTE, (byte) 1);
+
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    public boolean isCondenserItem(final ItemStack item) {
+        if (item == null || item.getType() != Material.CRAFTING_TABLE || !item.hasItemMeta()) {
+            return false;
+        }
+
+        Byte marker = item.getItemMeta()
+                .getPersistentDataContainer()
+                .get(condenserItemKey, PersistentDataType.BYTE);
+
+        return marker != null && marker == (byte) 1;
+    }
+
+    public boolean hasCondenserItem(final ItemStack[] contents) {
+        if (contents == null) {
+            return false;
+        }
+
+        for (ItemStack item : contents) {
+            if (isCondenserItem(item)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public int cleanupCondenserItems(final Player player) {
+        if (player == null || isCondenserItemModeEnabled()) {
+            return 0;
+        }
+
+        ItemStack[] contents = player.getInventory().getContents();
+        int removed = removeCondenserItems(contents);
+
+        if (removed > 0) {
+            player.getInventory().setContents(contents);
+        }
+
+        ItemStack cursorItem = player.getItemOnCursor();
+        if (isCondenserItem(cursorItem)) {
+            removed += cursorItem.getAmount();
+            player.setItemOnCursor(null);
+        }
+
+        if (removed > 0) {
+            player.updateInventory();
+        }
+
+        return removed;
+    }
+
+    public void cleanupCondenserItemsForOnlinePlayers() {
+        if (isCondenserItemModeEnabled()) {
+            return;
+        }
+
+        int totalRemoved = 0;
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            totalRemoved += cleanupCondenserItems(player);
+        }
+
+        if (totalRemoved > 0) {
+            getLogger().info("Removed " + totalRemoved
+                    + " leftover Condenser item(s) because COMMAND mode is active.");
+        }
     }
 
     private void updateConfigIfNeeded() {
@@ -131,8 +247,22 @@ public final class CondensePlugin extends JavaPlugin {
 
     private void validateConfig() {
         disabledCondenseInputs.clear();
+        validateActivationMode();
         validateCraftingTableMode();
         validateCondenseRecipes();
+    }
+
+    private void validateActivationMode() {
+        String mode = getConfig().getString("activation.mode", "COMMAND");
+        if (mode == null || mode.isBlank()) {
+            getLogger().warning("Config warning: activation.mode is missing or blank. Defaulting to COMMAND.");
+            return;
+        }
+
+        if (ActivationMode.fromString(mode) == null) {
+            getLogger().warning("Config warning: invalid activation.mode value '" + mode
+                    + "'. Valid values are COMMAND and CONDENSER_ITEM.");
+        }
     }
 
     private void validateCraftingTableMode() {
@@ -395,5 +525,118 @@ public final class CondensePlugin extends JavaPlugin {
         }
 
         return false;
+    }
+
+    private int removeCondenserItems(final ItemStack[] contents) {
+        if (contents == null) {
+            return 0;
+        }
+
+        int removed = 0;
+
+        for (int i = 0; i < contents.length; i++) {
+            ItemStack item = contents[i];
+            if (!isCondenserItem(item)) {
+                continue;
+            }
+
+            removed += item.getAmount();
+            contents[i] = null;
+        }
+
+        return removed;
+    }
+
+    private void refreshCondenserRecipe() {
+        unregisterCondenserRecipe();
+
+        if (!isCondenserItemModeEnabled()) {
+            return;
+        }
+
+        ShapedRecipe recipe = createCondenserRecipeFromConfig();
+        if (recipe == null) {
+            getLogger().warning("Condenser item mode is enabled, but the configured recipe is invalid. "
+                    + "The Condenser recipe was not registered.");
+            return;
+        }
+
+        Bukkit.addRecipe(recipe);
+        getLogger().info("Registered Condenser crafting recipe.");
+    }
+
+    private void unregisterCondenserRecipe() {
+        Bukkit.removeRecipe(condenserRecipeKey);
+    }
+
+    private ShapedRecipe createCondenserRecipeFromConfig() {
+        ConfigurationSection recipeSection = getConfig().getConfigurationSection("activation.condenser_item.recipe");
+        if (recipeSection == null) {
+            getLogger().warning("Config warning: missing activation.condenser_item.recipe section.");
+            return null;
+        }
+
+        List<String> shapeList = recipeSection.getStringList("shape");
+        if (shapeList.isEmpty() || shapeList.size() > 3) {
+            getLogger().warning("Config warning: activation.condenser_item.recipe.shape must contain 1 to 3 rows.");
+            return null;
+        }
+
+        String[] shape = new String[shapeList.size()];
+        Integer expectedWidth = null;
+        Set<Character> usedKeys = new HashSet<>();
+
+        for (int i = 0; i < shapeList.size(); i++) {
+            String row = shapeList.get(i);
+            if (row == null || row.isEmpty() || row.length() > 3) {
+                getLogger().warning("Config warning: invalid Condenser recipe row '" + row
+                        + "'. Each row must be 1 to 3 characters long.");
+                return null;
+            }
+
+            if (expectedWidth == null) {
+                expectedWidth = row.length();
+            } else if (row.length() != expectedWidth) {
+                getLogger().warning("Config warning: all Condenser recipe rows must have the same width.");
+                return null;
+            }
+
+            shape[i] = row;
+            for (char character : row.toCharArray()) {
+                if (character != ' ') {
+                    usedKeys.add(character);
+                }
+            }
+        }
+
+        ConfigurationSection ingredientsSection = recipeSection.getConfigurationSection("ingredients");
+        if (ingredientsSection == null) {
+            getLogger().warning("Config warning: missing activation.condenser_item.recipe.ingredients section.");
+            return null;
+        }
+
+        ShapedRecipe recipe;
+        try {
+            recipe = new ShapedRecipe(condenserRecipeKey, createCondenserItem());
+            recipe.shape(shape);
+        } catch (IllegalArgumentException ex) {
+            getLogger().warning("Config warning: failed to build Condenser recipe shape: " + ex.getMessage());
+            return null;
+        }
+
+        for (char key : usedKeys) {
+            String materialName = ingredientsSection.getString(String.valueOf(key));
+            Material ingredient = materialName == null ? null : Material.matchMaterial(materialName);
+
+            if (ingredient == null || !ingredient.isItem()) {
+                getLogger().warning("Config warning: invalid Condenser recipe ingredient '" + key
+                        + "' = '" + materialName + "'.");
+                return null;
+            }
+
+            recipe.setIngredient(key, ingredient);
+        }
+
+        return recipe;
     }
 }
