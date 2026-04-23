@@ -1,45 +1,105 @@
-# MinecraftCondensePlugin
+# Condense Reforged
 
-```diff
-- The condense command allows you to transform items into blocks.
+Condense Reforged is an enhanced fork of the original MinecraftCondensePlugin by rd156.
+
+It allows players to condense materials directly from their inventory using configurable recipes, with added validation, crafting requirements, and improved feedback.
+
+---
+
+## ✨ Features
+
+- Condense items directly from inventory using `/condense`
+- Supports all reversible vanilla compression recipes by default
+- Configurable crafting table requirements:
+  - Disabled
+  - Inventory only
+  - Nearby only
+  - Inventory or nearby
+- Dynamic output messages with leftover materials
+- Inventory safety checks (prevents item loss)
+- Detailed error feedback for players
+- Config validation and auto-upgrade system
+- Reload config in-game with `/condense reload`
+- Tab completion support for commands
+
+---
+
+## 📦 Example
+
+```text
+41 Iron Ingot → 4 Block of Iron + 5 Iron Ingot
 ```
 
-## The associated permission is condense.use
+---
 
-### Configuration:
+## ⚙️ Commands
 
-The configuration file is in the "Condense" folder in the plugins part of your server. </br>
-Inside you can activate the display of a message for each transformation.</br>
-```yml
-display:
-  list: true
+| Command | Description |
+|--------|------------|
+| `/condense` | Condense available materials |
+| `/condense reload` | Reload plugin config |
+
+---
+
+## 🔐 Permissions
+
+| Permission | Description | Default |
+|-----------|------------|--------|
+| `condense.use` | Use `/condense` | true |
+| `condense.reload` | Reload config | op |
+
+---
+
+## 🛠️ Configuration
+
+The plugin is fully configurable via `config.yml`.
+
+### Key Features
+
+- Define custom condense recipes
+- Enable/disable crafting table requirements
+- Control validation behavior
+- Customize all messages
+
+---
+
+## ❗ Error Handling Improvements
+
+- Shows full available materials instead of partial consumption
+- Displays leftover items in output
+- Prevents misleading “nothing to condense” messages
+- Provides inventory space failure reasons
+
+### Example
+
+```text
+Inventory full: 41 Iron Ingot → 4 Block of Iron + 5 Iron Ingot
+Inventory full summary: 3 additional slot(s) would have been needed in total.
 ```
 
-### List of item that you can condense:
-You can add every element that you want change with condense command. If you remove the block of one condense this items can not be condensed with this command.</br>
-```yml
-condense:
-  IRON_NUGGET:
-    output: IRON_INGOT
-    ratio_in: 9
-    ratio_out: 1
-  GOLD_NUGGET:
-    output: GOLD_INGOT
-    ratio_in: 9
-    ratio_out: 1
+---
+
+## 🔄 Reloading
+
+You can reload the plugin config without restarting the server:
+
+```text
+/condense reload
 ```
-### Message:
-You can also customize the set of messages displayed by the plugin.</br>
-By default the messages displayed is in english, but you can change this message in the configuration file.</br>
-The messages are divided into several categories:</br>
-The error messages found in the part error</br>
-The status messages found in the part condense</br>
-```yml
-message:
-  condense:
-    resume: "§a[number] items have been transformed."
-    item: "§a[item1] change into [item2]."
-  error:
-    inventory_full: "§4Inventory full: impossible to change [item1] into [item2]."
-    ratio_zero: "§4Attention the conversion ratio of [item1] is equal to 0."
-```
+
+---
+
+## 📜 License
+
+This project is licensed under the GNU General Public License v3.0.
+
+This is a fork of:
+https://github.com/rd156/MinecraftCondensePlugin
+
+---
+
+## 📊 Changelog
+
+For a full list of changes and differences from the original plugin, see:
+
+👉 [CHANGELOG.md](./CHANGELOG.md)
