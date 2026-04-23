@@ -1,105 +1,182 @@
 # Condense Reforged
 
-Condense Reforged is an enhanced fork of the original MinecraftCondensePlugin by rd156.
+Condense Reforged is a Paper plugin that lets players condense configured materials directly from their inventory with `/condense`.
 
-It allows players to condense materials directly from their inventory using configurable recipes, with added validation, crafting requirements, and improved feedback.
+The plugin is designed for storage-style conversions such as nuggets to ingots or ingots to blocks, while adding guardrails that the original project did not have: configurable crafting-table requirements, reversible-recipe validation, inventory safety checks, and reloadable config.
 
----
+This project is a fork of the original MinecraftCondensePlugin by `rd156`.
 
-## ✨ Features
+## What It Does
 
-- Condense items directly from inventory using `/condense`
-- Supports all reversible vanilla compression recipes by default
-- Configurable crafting table requirements:
-  - Disabled
-  - Inventory only
-  - Nearby only
-  - Inventory or nearby
-- Dynamic output messages with leftover materials
-- Inventory safety checks (prevents item loss)
-- Detailed error feedback for players
-- Config validation and auto-upgrade system
-- Reload config in-game with `/condense reload`
-- Tab completion support for commands
+- Condenses items using recipes defined in `config.yml`
+- Works directly from the player's inventory
+- Supports optional crafting-table requirements
+- Can allow small recipes to bypass the crafting-table requirement
+- Simulates inventory changes before applying them to prevent item loss
+- Warns about non-reversible recipes and can disable them automatically
+- Reloads configuration in game with `/condense reload`
 
----
+## Requirements
 
-## 📦 Example
+- Java 21
+- Paper 1.21.11
+- Maven 3.x to build from source
 
-```text
-41 Iron Ingot → 4 Block of Iron + 5 Iron Ingot
+The plugin is built against `io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT`.
+
+## Build
+
+```bash
+mvn clean package
 ```
 
----
+The built jar will be created in `target/` as `condense-reforged-<version>.jar`.
 
-## ⚙️ Commands
+## Install
 
-| Command | Description |
-|--------|------------|
-| `/condense` | Condense available materials |
-| `/condense reload` | Reload plugin config |
+1. Build the jar with Maven or use a packaged release.
+2. Place the jar in your server's `plugins/` directory.
+3. Start the server once to generate `plugins/CondenseReforged/config.yml`.
+4. Adjust the config if needed.
+5. Run `/condense reload` or restart the server after changes.
 
----
+## Commands
 
-## 🔐 Permissions
+| Command | Description | Permission |
+| --- | --- | --- |
+| `/condense` | Condense any configured materials the player is carrying | `condense.use` |
+| `/condense reload` | Reload the plugin configuration | `condense.reload` |
+
+`/condense` is player-only. `/condense reload` can be run by any sender with permission.
+
+## Permissions
 
 | Permission | Description | Default |
-|-----------|------------|--------|
-| `condense.use` | Use `/condense` | true |
-| `condense.reload` | Reload config | op |
+| --- | --- | --- |
+| `condense.use` | Allows players to use `/condense` | `true` |
+| `condense.reload` | Allows reloading the plugin config | `op` |
 
----
+## How Condensing Works
 
-## 🛠️ Configuration
+When a player runs `/condense`, the plugin:
 
-The plugin is fully configurable via `config.yml`.
+1. Loads the configured recipe list from `config.yml`.
+2. Checks whether the player's crafting-table requirement is satisfied for each recipe.
+3. Counts matching materials in the player's inventory.
+4. Simulates removing the inputs and adding the outputs before changing the real inventory.
+5. Applies successful conversions and repeats until no more configured conversions can run.
 
-### Key Features
+If the output would not fit, the plugin leaves the inventory unchanged for that conversion and reports how many extra slots would have been needed.
 
-- Define custom condense recipes
-- Enable/disable crafting table requirements
-- Control validation behavior
-- Customize all messages
+## Crafting Table Requirement Modes
 
----
+`requirements.crafting_table_mode` supports four modes:
 
-## ❗ Error Handling Improvements
+| Mode | Behavior |
+| --- | --- |
+| `DISABLED` | No crafting table is required |
+| `INVENTORY_ONLY` | The player must carry a crafting table |
+| `NEARBY_ONLY` | The player must be within range of a placed crafting table |
+| `INVENTORY_OR_NEARBY` | Either condition is accepted |
 
-- Shows full available materials instead of partial consumption
-- Displays leftover items in output
-- Prevents misleading “nothing to condense” messages
-- Provides inventory space failure reasons
+Related settings:
 
-### Example
+- `requirements.crafting_table_range`: search radius for nearby crafting tables
+- `requirements.bypass_crafting_table_for_small_recipes`: lets small recipes ignore the requirement
+- `requirements.small_recipe_bypass_max_ratio_in`: maximum `ratio_in` that qualifies as a small recipe
 
-```text
-Inventory full: 41 Iron Ingot → 4 Block of Iron + 5 Iron Ingot
-Inventory full summary: 3 additional slot(s) would have been needed in total.
+## Reversible Recipe Validation
+
+The plugin validates configured recipes during startup and reload:
+
+- `validation.warn_if_not_reversible`: logs a warning when a configured recipe does not appear reversible based on the server's loaded crafting recipes
+- `validation.disable_non_reversible_recipes`: prevents those recipes from running at all
+
+This is useful if your server has datapacks or custom recipes and you only want storage-style conversions that can be crafted back cleanly.
+
+## Default Recipe Set
+
+The bundled `config.yml` includes reversible vanilla-style compression recipes for:
+
+- `IRON_NUGGET -> IRON_INGOT`
+- `GOLD_NUGGET -> GOLD_INGOT`
+- `IRON_INGOT -> IRON_BLOCK`
+- `GOLD_INGOT -> GOLD_BLOCK`
+- `DIAMOND -> DIAMOND_BLOCK`
+- `EMERALD -> EMERALD_BLOCK`
+- `LAPIS_LAZULI -> LAPIS_BLOCK`
+- `REDSTONE -> REDSTONE_BLOCK`
+- `COAL -> COAL_BLOCK`
+- `NETHERITE_INGOT -> NETHERITE_BLOCK`
+- `COPPER_INGOT -> COPPER_BLOCK`
+- `RAW_IRON -> RAW_IRON_BLOCK`
+- `RAW_GOLD -> RAW_GOLD_BLOCK`
+- `RAW_COPPER -> RAW_COPPER_BLOCK`
+- `SLIME_BALL -> SLIME_BLOCK`
+- `WHEAT -> HAY_BLOCK`
+- `BONE_MEAL -> BONE_BLOCK`
+- `DRIED_KELP -> DRIED_KELP_BLOCK`
+
+You can add or remove entries under the `condense:` section to customize the behavior.
+
+## Configuration Overview
+
+The main config sections are:
+
+- `config-version`: internal migration/version marker
+- `display.list`: enables per-conversion chat output
+- `requirements.*`: crafting-table requirement behavior
+- `validation.*`: reversible recipe warnings and disabling
+- `message.*`: all user-facing plugin messages
+- `condense.*`: the actual conversion recipes
+
+Recipe format:
+
+```yml
+condense:
+  IRON_INGOT:
+    output: IRON_BLOCK
+    ratio_in: 9
+    ratio_out: 1
 ```
 
----
+## Message Placeholders
 
-## 🔄 Reloading
+The configurable messages use these placeholders:
 
-You can reload the plugin config without restarting the server:
+- `[item1]`: consumed input amount and material
+- `[item2]`: produced output, plus leftover input when applicable
+- `[input]`: total input count used in the final summary
+- `[output]`: total output count used in the final summary
+- `[slots]`: number of additional inventory slots needed
+- `[range]`: configured crafting-table search range
+- `[mode]`: invalid crafting-table mode from config
+
+## Notes For Server Owners
+
+- Invalid materials or invalid ratios are logged and skipped.
+- Non-item materials are rejected during validation.
+- Legacy crafting-table settings are migrated to `requirements.crafting_table_mode`.
+- The plugin only registers one command and does not use listeners, databases, or external storage.
+
+## Project Layout
 
 ```text
-/condense reload
+src/main/java/crosis47/minecraft/condense/
+  CondensePlugin.java
+  commands/CondenseCommand.java
+  requirements/CraftingTableMode.java
+
+src/main/resources/
+  plugin.yml
+  config.yml
 ```
 
----
+## License
 
-## 📜 License
+This project is licensed under the GNU General Public License v3.0. See [License.md](License.md).
 
-This project is licensed under the GNU General Public License v3.0.
+## Credits
 
-This is a fork of:
-https://github.com/rd156/MinecraftCondensePlugin
-
----
-
-## 📊 Changelog
-
-For a full list of changes and differences from the original plugin, see:
-
-👉 [CHANGELOG.md](./CHANGELOG.md)
+- Original project: [rd156/MinecraftCondensePlugin](https://github.com/rd156/MinecraftCondensePlugin)
+- Fork and current maintenance: `crosis47`
