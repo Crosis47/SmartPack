@@ -743,16 +743,6 @@ public final class CondenseCommand implements TabExecutor {
         return result;
     }
 
-    private record RequirementCheckResult(boolean allowed, String message) {
-        private static RequirementCheckResult success() {
-            return new RequirementCheckResult(true, "");
-        }
-
-        private static RequirementCheckResult failure(final String message) {
-            return new RequirementCheckResult(false, message);
-        }
-    }
-
     private record AttemptResult(int produced, int additionalSlotsNeeded) {
     }
 
