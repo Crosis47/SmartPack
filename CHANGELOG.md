@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.1.0] - 2026-04-23
+
+### Added
+- Added support for condensing recipes that use **4 or fewer inputs** without requiring a crafting table.
+  - Based on the standard 2x2 player crafting grid.
+- Added new config options to control small-recipe crafting table bypass:
+  - `requirements.bypass_crafting_table_for_small_recipes`
+  - `requirements.small_recipe_bypass_max_ratio_in`
+- Added contextual player hint:
+  - Displays a message when additional materials could be condensed at a crafting table after small recipes are processed.
+- Added new configurable message:
+  - `message.info.more_available_at_crafting_table`
+
+### Changed
+- Refactored crafting table requirement logic from a **global command check** to a **per-recipe evaluation system**.
+- Mixed inventory behavior improved:
+  - Small recipes (≤ threshold) can now condense even if larger recipes are blocked by crafting requirements.
+- Improved overall command flow so that valid partial condenses are not blocked by unrelated requirements.
+- Updated config documentation to clarify that the default bypass value of `4` is based on the player crafting grid size.
+
+### Fixed
+- Fixed validator rejecting datapack-based recipes that use **tag-based inputs/outputs** (e.g., wool color variants).
+- Added validator exception for **variant-based materials** (e.g., colored wool, concrete, glass, etc.) so reversible recipes using tags are no longer incorrectly flagged.
+- Prevented valid datapack recipes from being disabled when `disable_non_reversible_recipes` is enabled due to overly strict validation.
+
+---
+
 ## [1.0.1] - 2026-04-23
 
 ### Added

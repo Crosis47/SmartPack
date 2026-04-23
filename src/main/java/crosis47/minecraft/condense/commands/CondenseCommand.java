@@ -62,18 +62,23 @@ public final class CondenseCommand implements TabExecutor {
             return true;
         }
 
-        RequirementCheckResult requirementResult = checkCraftingTableRequirement(player);
-        if (!requirementResult.allowed()) {
-            player.sendMessage(requirementResult.message());
+        CraftingRequirementState craftingState = getCraftingRequirementState(player);
+        if (!craftingState.valid()) {
+            player.sendMessage(craftingState.failureMessage());
             return true;
         }
 
-        CondenseResult result = condense(player);
+        CondenseResult result = condense(player, craftingState);
 
         if (result.totalProduced() == 0) {
             if (result.totalAdditionalSlotsNeeded() > 0) {
                 sendInventoryFullMessages(player, result.inventoryFailures());
                 sendInventoryFullSummary(player, result.totalAdditionalSlotsNeeded());
+                return true;
+            }
+
+            if (result.blockedByCraftingRequirement()) {
+                player.sendMessage(buildCraftingRequirementFailureMessage(craftingState));
                 return true;
             }
 
@@ -93,6 +98,14 @@ public final class CondenseCommand implements TabExecutor {
         ).replace("[number]", String.valueOf(result.totalProduced()));
 
         player.sendMessage(message);
+
+        if (result.usedSmallRecipeBypass() && result.blockedByCraftingRequirement()) {
+            String hint = getMessage(
+                    "message.info.more_available_at_crafting_table",
+                    "§7More materials can be condensed at a crafting table."
+            );
+            player.sendMessage(hint);
+        }
 
         if (result.totalAdditionalSlotsNeeded() > 0) {
             sendInventoryFullMessages(player, result.inventoryFailures());
@@ -119,7 +132,7 @@ public final class CondenseCommand implements TabExecutor {
         return Collections.emptyList();
     }
 
-    private RequirementCheckResult checkCraftingTableRequirement(final Player player) {
+    private CraftingRequirementState getCraftingRequirementState(final Player player) {
         String rawMode = plugin.getConfig().getString("requirements.crafting_table_mode", "DISABLED");
         int range = Math.max(0, plugin.getConfig().getInt("requirements.crafting_table_range", 5));
 
@@ -132,53 +145,40 @@ public final class CondenseCommand implements TabExecutor {
                     "§4This plugin is misconfigured: invalid crafting table mode '[mode]'. Please contact an admin."
             ).replace("[mode]", String.valueOf(rawMode));
 
-            return RequirementCheckResult.failure(message);
+            return new CraftingRequirementState(
+                    false,
+                    message,
+                    CraftingTableMode.DISABLED,
+                    range,
+                    false,
+                    false,
+                    true,
+                    4
+            );
         }
 
         boolean hasInventoryTable = hasCraftingTableInInventory(player.getInventory());
         boolean hasNearbyTable = isNearCraftingTable(player, range);
 
-        return switch (mode) {
-            case DISABLED -> RequirementCheckResult.success();
+        boolean bypassForSmallRecipes = plugin.getConfig().getBoolean(
+                "requirements.bypass_crafting_table_for_small_recipes",
+                true
+        );
+        int bypassMaxRatioIn = Math.max(0, plugin.getConfig().getInt(
+                "requirements.small_recipe_bypass_max_ratio_in",
+                4
+        ));
 
-            case INVENTORY_ONLY -> {
-                if (hasInventoryTable) {
-                    yield RequirementCheckResult.success();
-                }
-
-                String message = getMessage(
-                        "message.error.crafting_table_required_inventory",
-                        "§4You must have a crafting table in your inventory to use this command."
-                );
-                yield RequirementCheckResult.failure(message);
-            }
-
-            case NEARBY_ONLY -> {
-                if (hasNearbyTable) {
-                    yield RequirementCheckResult.success();
-                }
-
-                String message = getMessage(
-                        "message.error.crafting_table_required_nearby",
-                        "§4You must be within [range] blocks of a crafting table to use this command."
-                ).replace("[range]", String.valueOf(range));
-
-                yield RequirementCheckResult.failure(message);
-            }
-
-            case INVENTORY_OR_NEARBY -> {
-                if (hasInventoryTable || hasNearbyTable) {
-                    yield RequirementCheckResult.success();
-                }
-
-                String message = getMessage(
-                        "message.error.crafting_table_required_inventory_or_nearby",
-                        "§4You need a crafting table to use this command. Put one in your inventory or stand within [range] blocks of one."
-                ).replace("[range]", String.valueOf(range));
-
-                yield RequirementCheckResult.failure(message);
-            }
-        };
+        return new CraftingRequirementState(
+                true,
+                "",
+                mode,
+                range,
+                hasInventoryTable,
+                hasNearbyTable,
+                bypassForSmallRecipes,
+                bypassMaxRatioIn
+        );
     }
 
     private boolean hasCraftingTableInInventory(final PlayerInventory inventory) {
@@ -227,33 +227,77 @@ public final class CondenseCommand implements TabExecutor {
         return false;
     }
 
-    private CondenseResult condense(final Player player) {
+    private boolean isCraftingRequirementSatisfiedForRecipe(
+            final CraftingRequirementState craftingState,
+            final int ratioIn
+    ) {
+        if (craftingState.mode() == CraftingTableMode.DISABLED) {
+            return true;
+        }
+
+        if (craftingState.bypassForSmallRecipes() && ratioIn <= craftingState.bypassMaxRatioIn()) {
+            return true;
+        }
+
+        return switch (craftingState.mode()) {
+            case DISABLED -> true;
+            case INVENTORY_ONLY -> craftingState.hasInventoryTable();
+            case NEARBY_ONLY -> craftingState.hasNearbyTable();
+            case INVENTORY_OR_NEARBY -> craftingState.hasInventoryTable() || craftingState.hasNearbyTable();
+        };
+    }
+
+    private String buildCraftingRequirementFailureMessage(final CraftingRequirementState craftingState) {
+        return switch (craftingState.mode()) {
+            case DISABLED -> "";
+            case INVENTORY_ONLY -> getMessage(
+                    "message.error.crafting_table_required_inventory",
+                    "§4You must have a crafting table in your inventory to use this command."
+            );
+            case NEARBY_ONLY -> getMessage(
+                    "message.error.crafting_table_required_nearby",
+                    "§4You must be within [range] blocks of a crafting table to use this command."
+            ).replace("[range]", String.valueOf(craftingState.range()));
+            case INVENTORY_OR_NEARBY -> getMessage(
+                    "message.error.crafting_table_required_inventory_or_nearby",
+                    "§4You need a crafting table to use this command. Put one in your inventory or stand within [range] blocks of one."
+            ).replace("[range]", String.valueOf(craftingState.range()));
+        };
+    }
+
+    private CondenseResult condense(final Player player, final CraftingRequirementState craftingState) {
         PlayerInventory inventory = player.getInventory();
         ConfigurationSection condenseSection = plugin.getConfig().getConfigurationSection("condense");
         if (condenseSection == null) {
             plugin.getLogger().warning("Missing 'condense' section in config.yml");
-            return new CondenseResult(0, false, 0, Collections.emptyMap());
+            return new CondenseResult(0, false, false, false, 0, Collections.emptyMap());
         }
 
         int totalProduced = 0;
         boolean hadValidAttempt = false;
+        boolean blockedByCraftingRequirement = false;
+        boolean usedSmallRecipeBypass = false;
 
         while (true) {
-            PassResult passResult = runCondensePass(player, inventory, condenseSection);
+            PassResult passResult = runCondensePass(player, inventory, condenseSection, craftingState);
 
             totalProduced += passResult.produced();
             hadValidAttempt |= passResult.hadValidAttempt();
+            blockedByCraftingRequirement |= passResult.blockedByCraftingRequirement();
+            usedSmallRecipeBypass |= passResult.usedSmallRecipeBypass();
 
             if (!passResult.madeAnyChange()) {
                 break;
             }
         }
 
-        FailureSummary finalFailureSummary = evaluateRemainingInventoryFailures(inventory, condenseSection);
+        FailureSummary finalFailureSummary = evaluateRemainingInventoryFailures(inventory, condenseSection, craftingState);
 
         return new CondenseResult(
                 totalProduced,
                 hadValidAttempt,
+                blockedByCraftingRequirement,
+                usedSmallRecipeBypass,
                 finalFailureSummary.totalAdditionalSlotsNeeded(),
                 finalFailureSummary.failures()
         );
@@ -262,7 +306,8 @@ public final class CondenseCommand implements TabExecutor {
     private PassResult runCondensePass(
             final Player player,
             final PlayerInventory inventory,
-            final ConfigurationSection condenseSection
+            final ConfigurationSection condenseSection,
+            final CraftingRequirementState craftingState
     ) {
         ItemStack[] storage = inventory.getStorageContents();
 
@@ -277,6 +322,8 @@ public final class CondenseCommand implements TabExecutor {
         int passProduced = 0;
         boolean hadValidAttempt = false;
         boolean madeAnyChange = false;
+        boolean blockedByCraftingRequirement = false;
+        boolean usedSmallRecipeBypass = false;
 
         for (String key : condenseSection.getKeys(false)) {
             ConfigurationSection rule = condenseSection.getConfigurationSection(key);
@@ -326,6 +373,14 @@ public final class CondenseCommand implements TabExecutor {
 
             hadValidAttempt = true;
 
+            boolean bypassed = craftingState.bypassForSmallRecipes()
+                    && ratioIn <= craftingState.bypassMaxRatioIn();
+
+            if (!isCraftingRequirementSatisfiedForRecipe(craftingState, ratioIn)) {
+                blockedByCraftingRequirement = true;
+                continue;
+            }
+
             AttemptResult attempt = tryCondense(
                     player,
                     inventory,
@@ -342,6 +397,10 @@ public final class CondenseCommand implements TabExecutor {
                 passProduced += attempt.produced();
                 madeAnyChange = true;
 
+                if (bypassed) {
+                    usedSmallRecipeBypass = true;
+                }
+
                 int crafts = available / ratioIn;
                 int consumed = crafts * ratioIn;
                 itemCounts.put(input, available - consumed);
@@ -349,12 +408,19 @@ public final class CondenseCommand implements TabExecutor {
             }
         }
 
-        return new PassResult(passProduced, hadValidAttempt, madeAnyChange);
+        return new PassResult(
+                passProduced,
+                hadValidAttempt,
+                madeAnyChange,
+                blockedByCraftingRequirement,
+                usedSmallRecipeBypass
+        );
     }
 
     private FailureSummary evaluateRemainingInventoryFailures(
             final PlayerInventory inventory,
-            final ConfigurationSection condenseSection
+            final ConfigurationSection condenseSection,
+            final CraftingRequirementState craftingState
     ) {
         ItemStack[] storage = inventory.getStorageContents();
 
@@ -391,6 +457,10 @@ public final class CondenseCommand implements TabExecutor {
 
             int available = itemCounts.getOrDefault(input, 0);
             if (available < ratioIn) {
+                continue;
+            }
+
+            if (!isCraftingRequirementSatisfiedForRecipe(craftingState, ratioIn)) {
                 continue;
             }
 
@@ -613,8 +683,7 @@ public final class CondenseCommand implements TabExecutor {
     }
 
     private String getItemName(final Material material) {
-        ItemStack stack = new ItemStack(material);
-        Component rendered = GlobalTranslator.render(Component.translatable(stack), Locale.US);
+        Component rendered = GlobalTranslator.render(Component.translatable(material), Locale.US);
         String plain = PlainTextComponentSerializer.plainText().serialize(rendered);
 
         if (plain == null || plain.isBlank()) {
@@ -679,7 +748,13 @@ public final class CondenseCommand implements TabExecutor {
     private record AttemptResult(int produced, int additionalSlotsNeeded) {
     }
 
-    private record PassResult(int produced, boolean hadValidAttempt, boolean madeAnyChange) {
+    private record PassResult(
+            int produced,
+            boolean hadValidAttempt,
+            boolean madeAnyChange,
+            boolean blockedByCraftingRequirement,
+            boolean usedSmallRecipeBypass
+    ) {
     }
 
     private record InventoryFailure(
@@ -698,8 +773,22 @@ public final class CondenseCommand implements TabExecutor {
     private record CondenseResult(
             int totalProduced,
             boolean hadValidAttempt,
+            boolean blockedByCraftingRequirement,
+            boolean usedSmallRecipeBypass,
             int totalAdditionalSlotsNeeded,
             Map<Material, InventoryFailure> inventoryFailures
+    ) {
+    }
+
+    private record CraftingRequirementState(
+            boolean valid,
+            String failureMessage,
+            CraftingTableMode mode,
+            int range,
+            boolean hasInventoryTable,
+            boolean hasNearbyTable,
+            boolean bypassForSmallRecipes,
+            int bypassMaxRatioIn
     ) {
     }
 }

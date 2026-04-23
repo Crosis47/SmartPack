@@ -232,7 +232,62 @@ public final class CondensePlugin extends JavaPlugin {
     ) {
         boolean forwardExists = hasSimpleConversionRecipe(input, output, ratioIn, ratioOut);
         boolean reverseExists = hasSimpleConversionRecipe(output, input, ratioOut, ratioIn);
-        return forwardExists && reverseExists;
+
+        if (forwardExists && reverseExists) {
+            return true;
+        }
+
+        // Exception: if the forward recipe exists and the configured output belongs
+        // to a broader variant family (for example colored wool), allow the validator
+        // to consider it acceptable even if the reverse recipe is not exact-material reversible.
+        if (forwardExists && !reverseExists && materialHasVariants(output)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private boolean materialHasVariants(final Material material) {
+        String name = material.name();
+
+        // Quick explicit support for common Minecraft variant families that are
+        // often grouped by tags in datapacks.
+        if (name.endsWith("_WOOL")
+                || name.endsWith("_CARPET")
+                || name.endsWith("_BED")
+                || name.endsWith("_BANNER")
+                || name.endsWith("_CONCRETE")
+                || name.endsWith("_CONCRETE_POWDER")
+                || name.endsWith("_STAINED_GLASS")
+                || name.endsWith("_STAINED_GLASS_PANE")
+                || name.endsWith("_TERRACOTTA")
+                || name.endsWith("_SHULKER_BOX")
+                || name.endsWith("_CANDLE")
+                || name.endsWith("_DYE")) {
+            return true;
+        }
+
+        // Generic fallback: if another material exists with the same suffix after
+        // the first underscore, treat this as a variant family.
+        int underscoreIndex = name.indexOf('_');
+        if (underscoreIndex <= 0 || underscoreIndex >= name.length() - 1) {
+            return false;
+        }
+
+        String suffix = name.substring(underscoreIndex);
+
+        for (Material other : Material.values()) {
+            if (other == material) {
+                continue;
+            }
+
+            String otherName = other.name();
+            if (otherName.endsWith(suffix)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private boolean hasSimpleConversionRecipe(

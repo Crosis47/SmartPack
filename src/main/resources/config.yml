@@ -40,37 +40,30 @@ display:
 # Requirement settings
 # ------------------------------------------------------------
 requirements:
-  # Controls whether players need access to a crafting table
-  # before /condense can be used.
-  #
-  # Available modes:
-  #
-  # DISABLED
-  #   No crafting table requirement.
-  #
-  # INVENTORY_ONLY
-  #   Player must have a crafting table item in inventory.
-  #
-  # NEARBY_ONLY
-  #   Player must be within crafting_table_range blocks of a
-  #   placed crafting table.
-  #
-  # INVENTORY_OR_NEARBY
-  #   Player can either have a crafting table in inventory OR
-  #   be within range of one in the world.
-  #
+  # Controls how a crafting table is required for condensing.
+  # Options:
+  #   DISABLED            - No crafting table required
+  #   INVENTORY_ONLY      - Must have a crafting table in inventory
+  #   NEARBY_ONLY         - Must be within range of a crafting table
+  #   INVENTORY_OR_NEARBY - Either condition is valid
   crafting_table_mode: NEARBY_ONLY
 
-  # The maximum distance (in blocks) used when checking for a
-  # nearby crafting table.
-  #
-  # Only applies to:
-  #   NEARBY_ONLY
-  #   INVENTORY_OR_NEARBY
-  #
-  # Range is checked in 3D space.
+  # Range (in blocks) used when NEARBY_ONLY or INVENTORY_OR_NEARBY is enabled
   crafting_table_range: 5
 
+  # If true, smaller recipes can bypass the crafting table requirement entirely.
+  # This is useful for custom recipes that fit within the player crafting grid.
+  bypass_crafting_table_for_small_recipes: true
+
+  # Maximum ratio_in that is allowed to bypass the crafting table requirement.
+  #
+  # Default is 4 because the standard 2x2 player crafting grid can handle up to 4 items.
+  # Recipes requiring 4 or fewer inputs do not require a crafting table.
+  #
+  # Examples:
+  #   ratio_in: 4  -> allowed without crafting table
+  #   ratio_in: 9  -> requires crafting table (if enabled)
+  small_recipe_bypass_max_ratio_in: 4
 
 # ------------------------------------------------------------
 # Validation settings
@@ -109,6 +102,10 @@ message:
     # Placeholders:
     #   [number] = total number of output items created
     resume: "§aMaterials condensed to [number] block(s)."
+
+  # Sent after converting small recipes without crafting table if anny large recipes available
+  info:
+    more_available_at_crafting_table: "§7More materials can be condensed at a crafting table."
 
   error:
     # Sent when a player lacks permission for /condense reload
