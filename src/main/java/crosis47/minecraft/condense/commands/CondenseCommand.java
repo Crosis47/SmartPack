@@ -45,21 +45,23 @@ public final class CondenseCommand implements CommandExecutor {
             return true;
         }
 
-        int converted = condense(player);
+        CondenseResult result = condense(player);
 
-        if (converted == 0) {
-            String message = getMessage(
-                    "message.error.nothing_to_condense",
-                    "§eYou do not have any valid materials to condense."
-            );
-            player.sendMessage(message);
+        if (result.totalProduced() == 0) {
+            if (!result.hadValidAttempt()) {
+                String message = getMessage(
+                        "message.error.nothing_to_condense",
+                        "§eYou do not have any valid materials to condense."
+                );
+                player.sendMessage(message);
+            }
             return true;
         }
 
         String message = getMessage(
                 "message.condense.resume",
                 "§a[number] output items were created."
-        ).replace("[number]", String.valueOf(converted));
+        ).replace("[number]", String.valueOf(result.totalProduced()));
 
         player.sendMessage(message);
         return true;
@@ -173,7 +175,7 @@ public final class CondenseCommand implements CommandExecutor {
         return false;
     }
 
-    private int condense(final Player player) {
+    private CondenseResult condense(final Player player) {
         PlayerInventory inventory = player.getInventory();
         ItemStack[] storage = inventory.getStorageContents();
 
@@ -188,10 +190,11 @@ public final class CondenseCommand implements CommandExecutor {
         ConfigurationSection condenseSection = plugin.getConfig().getConfigurationSection("condense");
         if (condenseSection == null) {
             plugin.getLogger().warning("Missing 'condense' section in config.yml");
-            return 0;
+            return new CondenseResult(0, false);
         }
 
         int totalProduced = 0;
+        boolean hadValidAttempt = false;
 
         for (String key : condenseSection.getKeys(false)) {
             ConfigurationSection rule = condenseSection.getConfigurationSection(key);
@@ -235,6 +238,12 @@ public final class CondenseCommand implements CommandExecutor {
             }
 
             int available = itemCounts.getOrDefault(input, 0);
+            if (available < ratioIn) {
+                continue;
+            }
+
+            hadValidAttempt = true;
+
             int produced = tryCondense(player, inventory, input, available, output, ratioIn, ratioOut);
 
             if (produced > 0) {
@@ -246,7 +255,7 @@ public final class CondenseCommand implements CommandExecutor {
             }
         }
 
-        return totalProduced;
+        return new CondenseResult(totalProduced, hadValidAttempt);
     }
 
     private int tryCondense(
@@ -415,5 +424,8 @@ public final class CondenseCommand implements CommandExecutor {
         private static RequirementCheckResult failure(final String message) {
             return new RequirementCheckResult(false, message);
         }
+    }
+
+    private record CondenseResult(int totalProduced, boolean hadValidAttempt) {
     }
 }
