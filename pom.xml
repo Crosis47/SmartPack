@@ -5,7 +5,7 @@
 
     <groupId>crosis47.minecraft</groupId>
     <artifactId>condense-reforged</artifactId>
-    <version>1.2.1</version>
+    <version>1.3.0</version>
     <packaging>jar</packaging>
 
     <name>Condense Reforged</name>

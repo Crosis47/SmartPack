@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+---
+
+## [1.3.0] - 2026-04-24
+
 ### Added
 - Added `/condense exclude` to open a per-player exclusion GUI for configured input materials.
 - Added persistent per-player skipped-material storage in SQLite via `player-exclusions.db`.
