@@ -37,6 +37,7 @@ import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -245,7 +246,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
                 return;
             }
 
-            CondenseResult result = condense(player, craftingState);
+            CondenseResult result = condense(player, craftingState, execution);
             execution.merge(result);
 
             if (result.totalProduced() > 0 || result.inventoryChangedDuringRun()) {
@@ -282,7 +283,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
             final CondenseResult finalResult
     ) {
         try {
-            if (execution.totalProduced == 0) {
+            if (!execution.hasSuccessfulConversions()) {
                 if (finalResult.totalAdditionalSlotsNeeded() > 0) {
                     sendInventoryFullMessages(player, finalResult.inventoryFailures());
                     sendInventoryFullSummary(player, finalResult.totalAdditionalSlotsNeeded());
@@ -308,12 +309,14 @@ public final class CondenseCommand implements TabExecutor, Listener {
                 return;
             }
 
-            String message = getMessage(
-                    "message.condense.resume",
-                    "Converted [input] items into [output] output items."
-            )
-                    .replace("[input]", String.valueOf(execution.totalInputConsumed))
-                    .replace("[output]", String.valueOf(execution.totalProduced));
+            Map<Material, OriginSummary> originSummaries = execution.buildOriginSummaries();
+            sendCondenseListMessages(player, originSummaries);
+
+            int totalInputCount = countOriginSummaryInputs(originSummaries);
+            int totalOutputCount = countOriginSummaryOutputs(originSummaries);
+            String condensedItems = formatMaterialTotals(buildCombinedOriginTotals(originSummaries));
+
+            String message = buildCondenseSummaryMessage(totalInputCount, totalOutputCount, condensedItems);
 
             player.sendMessage(message);
 
@@ -511,26 +514,42 @@ public final class CondenseCommand implements TabExecutor, Listener {
         };
     }
 
-    private CondenseResult condense(final Player player, final CraftingRequirementState craftingState) {
+    private CondenseResult condense(
+            final Player player,
+            final CraftingRequirementState craftingState,
+            final CondenseExecution execution
+    ) {
         PlayerInventory inventory = player.getInventory();
         ConfigurationSection condenseSection = plugin.getConfig().getConfigurationSection("condense");
         if (condenseSection == null) {
             plugin.getLogger().warning("Missing 'condense' section in config.yml");
-            return new CondenseResult(0, 0, false, false, false, false, 0, Collections.emptyMap(), Collections.emptyList());
+            return new CondenseResult(
+                    0,
+                    false,
+                    false,
+                    false,
+                    false,
+                    0,
+                    Collections.emptyMap(),
+                    Collections.emptyList()
+            );
         }
 
+        execution.syncTrackedInventory(
+                countContentsByMaterial(inventory.getStorageContents()),
+                collectTrackableInputMaterials(player.getUniqueId(), condenseSection)
+        );
+
         int totalProduced = 0;
-        int totalInputConsumed = 0;
         boolean hadValidAttempt = false;
         boolean blockedByCraftingRequirement = false;
         boolean usedSmallRecipeBypass = false;
         boolean inventoryChangedDuringRun = false;
 
         while (true) {
-            PassResult passResult = runCondensePass(player, inventory, condenseSection, craftingState);
+            PassResult passResult = runCondensePass(player, inventory, condenseSection, craftingState, execution);
 
             totalProduced += passResult.produced();
-            totalInputConsumed += passResult.inputConsumed();
             hadValidAttempt |= passResult.hadValidAttempt();
             blockedByCraftingRequirement |= passResult.blockedByCraftingRequirement();
             usedSmallRecipeBypass |= passResult.usedSmallRecipeBypass();
@@ -555,7 +574,6 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
         return new CondenseResult(
                 totalProduced,
-                totalInputConsumed,
                 hadValidAttempt,
                 blockedByCraftingRequirement,
                 usedSmallRecipeBypass,
@@ -570,12 +588,12 @@ public final class CondenseCommand implements TabExecutor, Listener {
             final Player player,
             final PlayerInventory inventory,
             final ConfigurationSection condenseSection,
-            final CraftingRequirementState craftingState
+            final CraftingRequirementState craftingState,
+            final CondenseExecution execution
     ) {
         Map<Material, Integer> itemCounts = countContentsByMaterial(inventory.getStorageContents());
 
         int passProduced = 0;
-        int inputConsumed = 0;
         boolean hadValidAttempt = false;
         boolean madeAnyChange = false;
         boolean blockedByCraftingRequirement = false;
@@ -646,7 +664,6 @@ public final class CondenseCommand implements TabExecutor, Listener {
                     output,
                     ratioIn,
                     ratioOut,
-                    true,
                     false
             );
 
@@ -664,14 +681,20 @@ public final class CondenseCommand implements TabExecutor, Listener {
                     usedSmallRecipeBypass = true;
                 }
 
-                inputConsumed += attempt.inputConsumed();
+                execution.recordSuccessfulConversion(
+                        input,
+                        output,
+                        ratioIn,
+                        ratioOut,
+                        attempt.inputConsumed(),
+                        attempt.produced()
+                );
                 itemCounts = countContentsByMaterial(inventory.getStorageContents());
             }
         }
 
         return new PassResult(
                 passProduced,
-                inputConsumed,
                 hadValidAttempt,
                 madeAnyChange,
                 blockedByCraftingRequirement,
@@ -729,7 +752,6 @@ public final class CondenseCommand implements TabExecutor, Listener {
                     output,
                     ratioIn,
                     ratioOut,
-                    false,
                     false
             );
 
@@ -790,14 +812,13 @@ public final class CondenseCommand implements TabExecutor, Listener {
             final Material output,
             final int ratioIn,
             final int ratioOut,
-            final boolean sendSuccessMessages,
             final boolean sendInventoryFullMessages
     ) {
         ItemStack[] liveContents = cloneContents(inventory.getStorageContents());
         int availableInput = countMaterial(liveContents, input);
         int crafts = availableInput / ratioIn;
         if (crafts <= 0) {
-            return new AttemptResult(0, 0, 0, false);
+            return new AttemptResult(0, 0, 0, 0, false);
         }
 
         int toConsume = crafts * ratioIn;
@@ -809,7 +830,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
         boolean removed = removeFromContents(simulated, input, toConsume);
         if (!removed) {
             plugin.getLogger().warning("Failed to remove expected input items for " + input);
-            return new AttemptResult(0, 0, 0, false);
+            return new AttemptResult(0, 0, 0, 0, false);
         }
 
         Map<Integer, ItemStack> leftovers = addToContents(simulated, new ItemStack(output, toProduce));
@@ -828,29 +849,16 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
                 player.sendMessage(message);
             }
-            return new AttemptResult(0, 0, additionalSlotsNeeded, false);
+            return new AttemptResult(0, 0, 0, additionalSlotsNeeded, false);
         }
 
         if (!storageContentsMatch(liveContents, inventory.getStorageContents())) {
-            return new AttemptResult(0, 0, 0, true);
+            return new AttemptResult(0, 0, 0, 0, true);
         }
 
         inventory.setStorageContents(simulated);
 
-        if (sendSuccessMessages && player != null && plugin.getConfig().getBoolean("display.list")) {
-            String item1 = formatItemAmount(availableInput, input);
-            String item2 = formatCondenseResult(toProduce, output, leftoverInput, input);
-
-            String message = getMessage(
-                    "message.condense.item",
-                    "[item1] -> [item2]"
-            ).replace("[item1]", item1)
-             .replace("[item2]", item2);
-
-            player.sendMessage(message);
-        }
-
-        return new AttemptResult(toProduce, toConsume, 0, false);
+        return new AttemptResult(toProduce, toConsume, leftoverInput, 0, false);
     }
 
     private void sendInventoryFullMessages(final Player player, final Map<Material, InventoryFailure> failures) {
@@ -875,6 +883,79 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
             player.sendMessage(message);
         }
+    }
+
+    private void sendCondenseListMessages(
+            final Player player,
+            final Map<Material, OriginSummary> originSummaries
+    ) {
+        if (!plugin.getConfig().getBoolean("display.list") || originSummaries.isEmpty()) {
+            return;
+        }
+
+        List<Map.Entry<Material, OriginSummary>> entries = new ArrayList<>(originSummaries.entrySet());
+        entries.sort(Comparator
+                .<Map.Entry<Material, OriginSummary>>comparingInt(entry -> entry.getValue().initialInputAmount())
+                .reversed()
+                .thenComparing(entry -> getItemName(entry.getKey())));
+
+        for (Map.Entry<Material, OriginSummary> entry : entries) {
+            Material origin = entry.getKey();
+            OriginSummary summary = entry.getValue();
+
+            String item1 = formatItemAmount(summary.initialInputAmount(), origin);
+            String item2 = formatMaterialTotals(summary.finalMaterialTotals());
+
+            String message = getMessage(
+                    "message.condense.item",
+                    "[item1] -> [item2]"
+            ).replace("[item1]", item1)
+             .replace("[item2]", item2);
+
+            player.sendMessage(message);
+        }
+    }
+
+    private int countOriginSummaryInputs(final Map<Material, OriginSummary> originSummaries) {
+        int total = 0;
+        for (OriginSummary summary : originSummaries.values()) {
+            total += summary.initialInputAmount();
+        }
+        return total;
+    }
+
+    private int countOriginSummaryOutputs(final Map<Material, OriginSummary> originSummaries) {
+        int total = 0;
+        for (OriginSummary summary : originSummaries.values()) {
+            total += summary.totalFinalItems();
+        }
+        return total;
+    }
+
+    private Map<Material, Integer> buildCombinedOriginTotals(final Map<Material, OriginSummary> originSummaries) {
+        Map<Material, Integer> combinedTotals = new EnumMap<>(Material.class);
+        for (OriginSummary summary : originSummaries.values()) {
+            for (Map.Entry<Material, Integer> entry : summary.finalMaterialTotals().entrySet()) {
+                combinedTotals.merge(entry.getKey(), entry.getValue(), Integer::sum);
+            }
+        }
+        return combinedTotals;
+    }
+
+    private String buildCondenseSummaryMessage(
+            final int totalInputCount,
+            final int totalOutputCount,
+            final String condensedItems
+    ) {
+        String message = getMessage("message.condense.summary", "Condensed [input] items down to [output].");
+        if (message.contains("[items]") && !message.contains("[input]") && !message.contains("[output]")) {
+            message = "Condensed [input] items down to [output].";
+        }
+
+        return message
+                .replace("[input]", String.valueOf(totalInputCount))
+                .replace("[output]", String.valueOf(totalOutputCount))
+                .replace("[items]", condensedItems);
     }
 
     private void sendInventoryFullSummary(final Player player, final int totalAdditionalSlotsNeeded) {
@@ -945,6 +1026,25 @@ public final class CondenseCommand implements TabExecutor, Listener {
             itemCounts.merge(item.getType(), item.getAmount(), Integer::sum);
         }
         return itemCounts;
+    }
+
+    private Set<Material> collectTrackableInputMaterials(
+            final UUID playerId,
+            final ConfigurationSection condenseSection
+    ) {
+        Set<Material> trackableInputs = new HashSet<>();
+        for (String key : condenseSection.getKeys(false)) {
+            Material input = Material.matchMaterial(key);
+            if (input == null
+                    || plugin.isCondenseInputDisabled(input)
+                    || plugin.isCondenseInputExcludedForRun(playerId, input)) {
+                continue;
+            }
+
+            trackableInputs.add(input);
+        }
+
+        return trackableInputs;
     }
 
     private int countMaterial(final ItemStack[] contents, final Material material) {
@@ -1440,7 +1540,13 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
     private String getMessage(final String path, final String fallback) {
         String value = plugin.getConfig().getString(path);
-        return value == null ? fallback : value;
+        return sanitizeMessage(value == null ? fallback : value);
+    }
+
+    private String sanitizeMessage(final String message) {
+        return message
+                .replace("\u00C3\u201A\u00C2\u00A7", "\u00A7")
+                .replace("\u00C2\u00A7", "\u00A7");
     }
 
     private String getItemName(final Material material) {
@@ -1481,6 +1587,66 @@ public final class CondenseCommand implements TabExecutor, Listener {
         return amount + " " + getItemName(material);
     }
 
+    private String formatMaterialTotals(final Map<Material, Integer> materialTotals) {
+        List<Map.Entry<Material, Integer>> entries = new ArrayList<>(materialTotals.entrySet());
+        entries.removeIf(entry -> entry.getValue() <= 0);
+
+        if (entries.isEmpty()) {
+            return "nothing";
+        }
+
+        entries.sort(Comparator
+                .<Map.Entry<Material, Integer>>comparingInt(entry -> getCondenseDepth(entry.getKey()))
+                .reversed()
+                .thenComparing(entry -> getItemName(entry.getKey())));
+
+        StringJoiner joiner = new StringJoiner(" + ");
+        for (Map.Entry<Material, Integer> entry : entries) {
+            joiner.add(formatItemAmount(entry.getValue(), entry.getKey()));
+        }
+
+        return joiner.toString();
+    }
+
+    private int getCondenseDepth(final Material material) {
+        ConfigurationSection condenseSection = plugin.getConfig().getConfigurationSection("condense");
+        if (condenseSection == null) {
+            return 0;
+        }
+
+        return getCondenseDepth(material, condenseSection, new HashSet<>());
+    }
+
+    private int getCondenseDepth(
+            final Material material,
+            final ConfigurationSection condenseSection,
+            final Set<Material> visiting
+    ) {
+        if (!visiting.add(material)) {
+            return 0;
+        }
+
+        int depth = 0;
+        for (String key : condenseSection.getKeys(false)) {
+            ConfigurationSection rule = condenseSection.getConfigurationSection(key);
+            if (rule == null) {
+                continue;
+            }
+
+            Material input = Material.matchMaterial(key);
+            String outputName = rule.getString("output");
+            Material output = outputName == null ? null : Material.matchMaterial(outputName);
+            if (input == null || output != material) {
+                continue;
+            }
+
+            depth = Math.max(depth, getCondenseDepth(input, condenseSection, visiting) + 1);
+        }
+
+        visiting.remove(material);
+        return depth;
+    }
+
     private String formatCondenseResult(
             final int producedAmount,
             final Material producedMaterial,
@@ -1499,6 +1665,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
     private record AttemptResult(
             int produced,
             int inputConsumed,
+            int leftoverInput,
             int additionalSlotsNeeded,
             boolean inventoryChanged
     ) {
@@ -1506,7 +1673,6 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
     private record PassResult(
             int produced,
-            int inputConsumed,
             boolean hadValidAttempt,
             boolean madeAnyChange,
             boolean blockedByCraftingRequirement,
@@ -1533,7 +1699,6 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
     private record CondenseResult(
             int totalProduced,
-            int totalInputConsumed,
             boolean hadValidAttempt,
             boolean blockedByCraftingRequirement,
             boolean usedSmallRecipeBypass,
@@ -1542,6 +1707,22 @@ public final class CondenseCommand implements TabExecutor, Listener {
             Map<Material, InventoryFailure> inventoryFailures,
             List<SkippedMaterial> skippedMaterials
     ) {
+    }
+
+    private record OriginSummary(
+            int initialInputAmount,
+            Map<Material, Integer> finalMaterialTotals
+    ) {
+        private int totalFinalItems() {
+            int total = 0;
+            for (int amount : finalMaterialTotals.values()) {
+                total += amount;
+            }
+            return total;
+        }
+    }
+
+    private record OutputAllocation(Material originMaterial, long remainder, int consumedInput) {
     }
 
     private record CraftingRequirementState(
@@ -1564,19 +1745,291 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
     private static final class CondenseExecution {
 
-        private int totalProduced;
-        private int totalInputConsumed;
         private boolean hadValidAttempt;
         private boolean blockedByCraftingRequirement;
         private boolean usedSmallRecipeBypass;
         private int settleTicksRemaining;
+        private final Map<Material, Integer> initialInputTotals = new LinkedHashMap<>();
+        private final Map<Material, LinkedHashMap<Material, Integer>> trackedMaterialOrigins = new EnumMap<>(Material.class);
+        private final Set<Material> convertedOrigins = new HashSet<>();
 
         private void merge(final CondenseResult result) {
-            totalProduced += result.totalProduced();
-            totalInputConsumed += result.totalInputConsumed();
             hadValidAttempt |= result.hadValidAttempt();
             blockedByCraftingRequirement |= result.blockedByCraftingRequirement();
             usedSmallRecipeBypass |= result.usedSmallRecipeBypass();
+        }
+
+        private boolean hasSuccessfulConversions() {
+            return !convertedOrigins.isEmpty();
+        }
+
+        private void syncTrackedInventory(
+                final Map<Material, Integer> liveCounts,
+                final Set<Material> trackableInputMaterials
+        ) {
+            for (Map.Entry<Material, Integer> entry : liveCounts.entrySet()) {
+                Material material = entry.getKey();
+                int liveAmount = entry.getValue();
+                int trackedAmount = getTrackedAmount(material);
+
+                if (liveAmount < trackedAmount) {
+                    removeTrackedAmount(material, trackedAmount - liveAmount);
+                    continue;
+                }
+
+                if (liveAmount > trackedAmount && trackableInputMaterials.contains(material)) {
+                    trackNewInput(material, liveAmount - trackedAmount);
+                }
+            }
+
+            for (Material material : new ArrayList<>(trackedMaterialOrigins.keySet())) {
+                if (liveCounts.containsKey(material)) {
+                    continue;
+                }
+
+                removeTrackedAmount(material, getTrackedAmount(material));
+            }
+        }
+
+        private void recordSuccessfulConversion(
+                final Material input,
+                final Material output,
+                final int ratioIn,
+                final int ratioOut,
+                final int consumedInput,
+                final int producedOutput
+        ) {
+            Map<Material, Integer> consumedByOrigin = consumeTrackedAmounts(input, consumedInput);
+            if (consumedByOrigin.isEmpty()) {
+                return;
+            }
+
+            convertedOrigins.addAll(consumedByOrigin.keySet());
+
+            Map<Material, Integer> producedByOrigin = allocateProducedAmounts(
+                    consumedByOrigin,
+                    ratioIn,
+                    ratioOut,
+                    producedOutput
+            );
+            for (Map.Entry<Material, Integer> entry : producedByOrigin.entrySet()) {
+                if (entry.getValue() <= 0) {
+                    continue;
+                }
+
+                addTrackedAmount(output, entry.getKey(), entry.getValue());
+            }
+        }
+
+        private Map<Material, OriginSummary> buildOriginSummaries() {
+            Map<Material, OriginSummary> summaries = new LinkedHashMap<>();
+
+            for (Map.Entry<Material, Integer> entry : initialInputTotals.entrySet()) {
+                Material origin = entry.getKey();
+                if (!convertedOrigins.contains(origin)) {
+                    continue;
+                }
+
+                Map<Material, Integer> finalTotals = new EnumMap<>(Material.class);
+                for (Map.Entry<Material, LinkedHashMap<Material, Integer>> materialEntry : trackedMaterialOrigins.entrySet()) {
+                    int amount = materialEntry.getValue().getOrDefault(origin, 0);
+                    if (amount > 0) {
+                        finalTotals.put(materialEntry.getKey(), amount);
+                    }
+                }
+
+                if (!finalTotals.isEmpty()) {
+                    summaries.put(origin, new OriginSummary(entry.getValue(), finalTotals));
+                }
+            }
+
+            return summaries;
+        }
+
+        private Map<Material, Integer> consumeTrackedAmounts(final Material material, final int amount) {
+            if (amount <= 0) {
+                return Collections.emptyMap();
+            }
+
+            int trackedAmount = getTrackedAmount(material);
+            if (trackedAmount < amount) {
+                trackNewInput(material, amount - trackedAmount);
+            }
+
+            LinkedHashMap<Material, Integer> origins = trackedMaterialOrigins.get(material);
+            if (origins == null || origins.isEmpty()) {
+                return Collections.emptyMap();
+            }
+
+            int remaining = amount;
+            Map<Material, Integer> consumedByOrigin = new LinkedHashMap<>();
+            List<Material> emptiedOrigins = new ArrayList<>();
+
+            for (Map.Entry<Material, Integer> entry : origins.entrySet()) {
+                if (remaining <= 0) {
+                    break;
+                }
+
+                int taken = Math.min(entry.getValue(), remaining);
+                if (taken <= 0) {
+                    continue;
+                }
+
+                consumedByOrigin.put(entry.getKey(), taken);
+
+                int updatedAmount = entry.getValue() - taken;
+                if (updatedAmount > 0) {
+                    entry.setValue(updatedAmount);
+                } else {
+                    emptiedOrigins.add(entry.getKey());
+                }
+
+                remaining -= taken;
+            }
+
+            for (Material emptiedOrigin : emptiedOrigins) {
+                origins.remove(emptiedOrigin);
+            }
+
+            if (origins.isEmpty()) {
+                trackedMaterialOrigins.remove(material);
+            }
+
+            return consumedByOrigin;
+        }
+
+        private Map<Material, Integer> allocateProducedAmounts(
+                final Map<Material, Integer> consumedByOrigin,
+                final int ratioIn,
+                final int ratioOut,
+                final int producedOutput
+        ) {
+            if (consumedByOrigin.isEmpty() || producedOutput <= 0 || ratioIn <= 0 || ratioOut <= 0) {
+                return Collections.emptyMap();
+            }
+
+            int totalConsumed = 0;
+            for (int amount : consumedByOrigin.values()) {
+                totalConsumed += amount;
+            }
+            if (totalConsumed <= 0) {
+                return Collections.emptyMap();
+            }
+
+            Map<Material, Integer> producedByOrigin = new LinkedHashMap<>();
+            List<OutputAllocation> allocations = new ArrayList<>();
+            int assignedOutput = 0;
+
+            for (Map.Entry<Material, Integer> entry : consumedByOrigin.entrySet()) {
+                long scaledOutput = (long) entry.getValue() * producedOutput;
+                int baseOutput = (int) (scaledOutput / totalConsumed);
+                long remainder = scaledOutput % totalConsumed;
+
+                producedByOrigin.put(entry.getKey(), baseOutput);
+                assignedOutput += baseOutput;
+                allocations.add(new OutputAllocation(entry.getKey(), remainder, entry.getValue()));
+            }
+
+            allocations.sort(
+                    Comparator.comparingLong(OutputAllocation::remainder)
+                            .reversed()
+                            .thenComparing(Comparator.comparingInt(OutputAllocation::consumedInput).reversed())
+            );
+
+            int remainingOutput = producedOutput - assignedOutput;
+            while (remainingOutput > 0 && !allocations.isEmpty()) {
+                for (OutputAllocation allocation : allocations) {
+                    producedByOrigin.merge(allocation.originMaterial(), 1, Integer::sum);
+                    remainingOutput--;
+                    if (remainingOutput == 0) {
+                        break;
+                    }
+                }
+            }
+
+            return producedByOrigin;
+        }
+
+        private void trackNewInput(final Material material, final int amount) {
+            if (amount <= 0) {
+                return;
+            }
+
+            addTrackedAmount(material, material, amount);
+            initialInputTotals.merge(material, amount, Integer::sum);
+        }
+
+        private void addTrackedAmount(final Material material, final Material origin, final int amount) {
+            if (amount <= 0) {
+                return;
+            }
+
+            trackedMaterialOrigins
+                    .computeIfAbsent(material, ignored -> new LinkedHashMap<>())
+                    .merge(origin, amount, Integer::sum);
+        }
+
+        private int getTrackedAmount(final Material material) {
+            Map<Material, Integer> origins = trackedMaterialOrigins.get(material);
+            if (origins == null) {
+                return 0;
+            }
+
+            int total = 0;
+            for (int amount : origins.values()) {
+                total += amount;
+            }
+            return total;
+        }
+
+        private void removeTrackedAmount(final Material material, final int amount) {
+            if (amount <= 0) {
+                return;
+            }
+
+            LinkedHashMap<Material, Integer> origins = trackedMaterialOrigins.get(material);
+            if (origins == null || origins.isEmpty()) {
+                return;
+            }
+
+            int remaining = drainOriginAmount(origins, material, amount);
+            if (remaining > 0) {
+                for (Material origin : new ArrayList<>(origins.keySet())) {
+                    if (origin == material) {
+                        continue;
+                    }
+
+                    remaining = drainOriginAmount(origins, origin, remaining);
+                    if (remaining <= 0) {
+                        break;
+                    }
+                }
+            }
+
+            if (origins.isEmpty()) {
+                trackedMaterialOrigins.remove(material);
+            }
+        }
+
+        private int drainOriginAmount(
+                final LinkedHashMap<Material, Integer> origins,
+                final Material origin,
+                final int amount
+        ) {
+            int existing = origins.getOrDefault(origin, 0);
+            if (existing <= 0 || amount <= 0) {
+                return amount;
+            }
+
+            int removed = Math.min(existing, amount);
+            int updatedAmount = existing - removed;
+            if (updatedAmount > 0) {
+                origins.put(origin, updatedAmount);
+            } else {
+                origins.remove(origin);
+            }
+
+            return amount - removed;
         }
 
         private void resetSettleTicks() {

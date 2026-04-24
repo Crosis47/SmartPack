@@ -166,7 +166,7 @@ The main config sections are:
 
 - `config-version`: internal migration/version marker
 - `activation.*`: command vs Condenser-item activation, including whether `/condense` is allowed in item mode
-- `display.list`: enables per-conversion chat output
+- `display.list`: enables one final chat line per original condensed input after the condense cycle completes
 - `requirements.*`: crafting-table requirement behavior
 - `validation.*`: reversible recipe warnings and disabling
 - `message.*`: all user-facing plugin messages
@@ -186,10 +186,11 @@ condense:
 
 The configurable messages use these placeholders:
 
-- `[item1]`: consumed input amount and material
-- `[item2]`: produced output, plus leftover input when applicable
-- `[input]`: total input count used in the final summary
-- `[output]`: total output count used in the final summary
+- `[item1]`: original input amount and material for a completed condense line
+- `[item2]`: final condensed result for that original input, including leftovers
+- `[input]`: total original input count condensed in the final summary
+- `[output]`: total final item count after condensing in the final summary
+- `[items]`: combined final condensed materials if the summary template uses a material list
 - `[slots]`: number of additional inventory slots needed
 - `[range]`: configured crafting-table search range
 - `[mode]`: invalid crafting-table mode from config

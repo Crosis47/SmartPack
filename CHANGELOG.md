@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.3] - 2026-04-24
+
+### Fixed
+- Fixed a `/condense` command crash caused by a stale internal method call after the condense display refactor.
+- Corrected condense-cycle display aggregation so each original input material is reported once after the full settle window with its final condensed totals.
+- Changed the final condense summary to report total original inputs condensed versus the final item count instead of listing intermediate-step totals.
+
+---
+
 ## [1.3.2] - 2026-04-24
 
 ### Fixed

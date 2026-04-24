@@ -122,19 +122,22 @@ message:
   # Sent after /condense reload succeeds.
   reload: "§aCondense Reforged config reloaded."
   condense:
-    # Sent once per successful conversion when display.list is enabled.
+    # Sent once per original input material after the condense cycle completes
+    # when display.list is enabled.
     #
     # Placeholders:
-    #   [item1] = consumed input amount and material
-    #   [item2] = produced result, plus leftover input if any
+    #   [item1] = original input amount and material
+    #   [item2] = final condensed result for that original input, plus leftovers
     item: "§a[item1] -> [item2]."
 
     # Sent after all conversions complete.
     #
     # Placeholders:
-    #   [input] = total number of input items consumed
-    #   [output] = total number of output items created
+    #   [input] = total number of original input items condensed
+    #   [output] = total number of final items after condensing
     resume: "§a[input] Materials condensed to [output] block(s)."
+    #   [items] = combined final condensed materials and leftovers
+    summary: "Â§aCondensed into [items]."
 
   # Informational messages
   info:
