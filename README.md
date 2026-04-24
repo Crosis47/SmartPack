@@ -13,6 +13,7 @@ This project is a fork of the original MinecraftCondensePlugin by `rd156`.
 - Supports both command activation and Condenser item activation
 - Supports optional crafting-table requirements
 - Can allow small recipes to bypass the crafting-table requirement
+- Lets each player exclude configured materials through `/condense exclude`
 - Simulates inventory changes before applying them to prevent item loss
 - Automatically removes leftover Condenser items while running in `COMMAND` mode
 - Warns about non-reversible recipes and can disable them automatically
@@ -47,6 +48,7 @@ The built jar will be created in `target/` as `condense-reforged-<version>.jar`.
 | Command | Description | Permission |
 | --- | --- | --- |
 | `/condense` | Condense any configured materials the player is carrying | `condense.use` |
+| `/condense exclude` | Open a GUI to toggle which configured inputs should be skipped for that player | `condense.use` |
 | `/condense reload` | Reload the plugin configuration | `condense.reload` |
 
 `/condense` is player-only. `/condense reload` can be run by any sender with permission.
@@ -73,6 +75,13 @@ When a player runs `/condense`, the plugin:
 5. Applies successful conversions and repeats until no more configured conversions can run.
 
 If the output would not fit, the plugin leaves the inventory unchanged for that conversion and reports how many extra slots would have been needed.
+
+Players can also open `/condense exclude` to choose configured input materials that should be ignored:
+
+- Left-click marks a material to be skipped on the next condense run only.
+- Right-click toggles a persistent per-player exclusion saved in `player-exclusions.db`.
+- Glowing slots indicate that an exclusion is currently active for that material.
+- The red `X` button in the bottom-right corner cancels all edits made during the current menu session.
 
 When `activation.mode` is `CONDENSER_ITEM`, the same condense flow is triggered by right-clicking the Condenser item in the player's inventory. The Condenser is a custom crafting table item with a glint and a configurable recipe.
 
@@ -188,7 +197,8 @@ The configurable messages use these placeholders:
 - Invalid materials or invalid ratios are logged and skipped.
 - Non-item materials are rejected during validation.
 - Legacy crafting-table settings are migrated to `requirements.crafting_table_mode`.
-- The plugin only registers one command and does not use listeners, databases, or external storage.
+- Persistent player exclusions are stored in `player-exclusions.db`.
+- On first startup after upgrading, any existing `player-exclusions.yml` data is migrated into SQLite and the legacy file is backed up as `player-exclusions.yml.bak`.
 
 ## Project Layout
 
@@ -196,6 +206,7 @@ The configurable messages use these placeholders:
 src/main/java/crosis47/minecraft/condense/
   CondensePlugin.java
   commands/CondenseCommand.java
+  storage/PlayerExclusionStore.java
   requirements/CraftingTableMode.java
 
 src/main/resources/

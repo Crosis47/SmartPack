@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased]
+
+### Added
+- Added `/condense exclude` to open a per-player exclusion GUI for configured input materials.
+- Added persistent per-player skipped-material storage in SQLite via `player-exclusions.db`.
+- Added paged GUI toggles so excluded materials are marked with a red `X` and ignored by future condense runs.
+- Added one-time next-run skips from the GUI via left-click, while right-click manages persistent exclusions.
+- Added automatic migration of legacy `player-exclusions.yml` data into SQLite with a `.bak` backup of the old file.
+- Added glowing slot indicators for active exclusions and a bottom-right cancel button that reverts edits made in the open exclusion menu.
+
+---
+
 ## [1.2.1] - 2026-04-23
 
 ### Added

@@ -9,7 +9,7 @@ commands:
   condense:
     description: Condense configured items into other items
     permission: condense.use
-    usage: "/condense [reload]"
+    usage: "/condense [reload|exclude]"
 
 permissions:
   condense.use:

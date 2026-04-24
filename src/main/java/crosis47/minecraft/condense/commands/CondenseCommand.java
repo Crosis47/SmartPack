@@ -3,6 +3,8 @@ package crosis47.minecraft.condense.commands;
 import crosis47.minecraft.condense.CondensePlugin;
 import crosis47.minecraft.condense.requirements.CraftingTableMode;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import net.kyori.adventure.translation.GlobalTranslator;
 import org.bukkit.Bukkit;
@@ -19,21 +21,38 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 
 public final class CondenseCommand implements TabExecutor, Listener {
 
+    private static final int EXCLUDE_MENU_SIZE = 54;
+    private static final int EXCLUDE_MENU_CONTENT_SIZE = 45;
+    private static final int EXCLUDE_MENU_PREVIOUS_SLOT = 45;
+    private static final int EXCLUDE_MENU_INFO_SLOT = 49;
+    private static final int EXCLUDE_MENU_NEXT_SLOT = 50;
+    private static final int EXCLUDE_MENU_CANCEL_SLOT = 53;
+
     private final CondensePlugin plugin;
+    private final Map<UUID, ExcludeMenuSession> excludeMenuSessions = new HashMap<>();
 
     public CondenseCommand(final CondensePlugin plugin) {
         this.plugin = plugin;
@@ -46,21 +65,33 @@ public final class CondenseCommand implements TabExecutor, Listener {
             @NotNull String label,
             @NotNull String[] args
     ) {
-        if (args.length > 0 && args[0].equalsIgnoreCase("reload")) {
-            if (!sender.hasPermission("condense.reload")) {
+        if (args.length > 0) {
+            if (args[0].equalsIgnoreCase("reload")) {
+                if (!sender.hasPermission("condense.reload")) {
+                    sender.sendMessage(getMessage(
+                            "message.error.no_permission",
+                            "You do not have permission to use this command."
+                    ));
+                    return true;
+                }
+
+                plugin.reloadPluginConfig();
                 sender.sendMessage(getMessage(
-                        "message.error.no_permission",
-                        "§cYou do not have permission to use this command."
+                        "message.reload",
+                        "Condense Reforged config reloaded."
                 ));
                 return true;
             }
 
-            plugin.reloadPluginConfig();
-            sender.sendMessage(getMessage(
-                    "message.reload",
-                    "§aCondense Reforged config reloaded."
-            ));
-            return true;
+            if (args[0].equalsIgnoreCase("exclude")) {
+                if (!(sender instanceof Player player)) {
+                    sender.sendMessage("This command can only be used by a player.");
+                    return true;
+                }
+
+                openExcludeMenu(player, 0);
+                return true;
+            }
         }
 
         if (!(sender instanceof Player player)) {
@@ -72,7 +103,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
             if (!plugin.isCondenserCommandAllowed()) {
                 player.sendMessage(getMessage(
                         "message.info.use_condenser_item",
-                        "§eUse a Condenser from your inventory to condense materials."
+                        "Use a Condenser from your inventory to condense materials."
                 ));
                 return true;
             }
@@ -80,7 +111,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
             if (!plugin.hasCondenserItem(player.getInventory().getStorageContents())) {
                 player.sendMessage(getMessage(
                         "message.error.condenser_item_required",
-                        "§cYou must have a Condenser in your inventory to use this command."
+                        "You must have a Condenser in your inventory to use this command."
                 ));
                 return true;
             }
@@ -92,6 +123,11 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
     @EventHandler(ignoreCancelled = true)
     public void onInventoryClick(final InventoryClickEvent event) {
+        if (event.getView().getTopInventory().getHolder() instanceof ExcludeMenuHolder holder) {
+            handleExcludeMenuClick(event, holder);
+            return;
+        }
+
         if (!plugin.isCondenserItemModeEnabled()) {
             return;
         }
@@ -122,13 +158,36 @@ public final class CondenseCommand implements TabExecutor, Listener {
             if (!player.hasPermission("condense.use")) {
                 player.sendMessage(getMessage(
                         "message.error.no_permission",
-                        "§cYou do not have permission to use this command."
+                        "You do not have permission to use this command."
                 ));
                 return;
             }
 
             executeCondense(player);
         });
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onInventoryDrag(final InventoryDragEvent event) {
+        if (!(event.getView().getTopInventory().getHolder() instanceof ExcludeMenuHolder)) {
+            return;
+        }
+
+        for (int rawSlot : event.getRawSlots()) {
+            if (rawSlot < event.getView().getTopInventory().getSize()) {
+                event.setCancelled(true);
+                return;
+            }
+        }
+    }
+
+    @EventHandler
+    public void onInventoryClose(final InventoryCloseEvent event) {
+        if (!(event.getInventory().getHolder() instanceof ExcludeMenuHolder holder)) {
+            return;
+        }
+
+        excludeMenuSessions.remove(holder.playerId());
     }
 
     @EventHandler(ignoreCancelled = true)
@@ -146,56 +205,62 @@ public final class CondenseCommand implements TabExecutor, Listener {
     }
 
     public void executeCondense(final Player player) {
-        CraftingRequirementState craftingState = getCraftingRequirementState(player);
-        if (!craftingState.valid()) {
-            player.sendMessage(craftingState.failureMessage());
-            return;
-        }
+        UUID playerId = player.getUniqueId();
 
-        CondenseResult result = condense(player, craftingState);
+        try {
+            CraftingRequirementState craftingState = getCraftingRequirementState(player);
+            if (!craftingState.valid()) {
+                player.sendMessage(craftingState.failureMessage());
+                return;
+            }
 
-        if (result.totalProduced() == 0) {
+            CondenseResult result = condense(player, craftingState);
+
+            if (result.totalProduced() == 0) {
+                if (result.totalAdditionalSlotsNeeded() > 0) {
+                    sendInventoryFullMessages(player, result.inventoryFailures());
+                    sendInventoryFullSummary(player, result.totalAdditionalSlotsNeeded());
+                    return;
+                }
+
+                if (result.blockedByCraftingRequirement()) {
+                    player.sendMessage(buildCraftingRequirementFailureMessage(craftingState));
+                    return;
+                }
+
+                if (!result.hadValidAttempt()) {
+                    String message = getMessage(
+                            "message.error.nothing_to_condense",
+                            "You do not have any valid materials to condense."
+                    );
+                    player.sendMessage(message);
+                }
+                return;
+            }
+
+            String message = getMessage(
+                    "message.condense.resume",
+                    "Converted [input] items into [output] output items."
+            )
+                    .replace("[input]", String.valueOf(result.totalInputConsumed()))
+                    .replace("[output]", String.valueOf(result.totalProduced()));
+
+            player.sendMessage(message);
+
+            if (result.usedSmallRecipeBypass() && result.blockedByCraftingRequirement()) {
+                String hint = getMessage(
+                        "message.info.more_available_at_crafting_table",
+                        "More materials can be condensed at a crafting table."
+                );
+                player.sendMessage(hint);
+            }
+
             if (result.totalAdditionalSlotsNeeded() > 0) {
                 sendInventoryFullMessages(player, result.inventoryFailures());
                 sendInventoryFullSummary(player, result.totalAdditionalSlotsNeeded());
-                return;
             }
-
-            if (result.blockedByCraftingRequirement()) {
-                player.sendMessage(buildCraftingRequirementFailureMessage(craftingState));
-                return;
-            }
-
-            if (!result.hadValidAttempt()) {
-                String message = getMessage(
-                        "message.error.nothing_to_condense",
-                        "§eYou do not have any valid materials to condense."
-                );
-                player.sendMessage(message);
-            }
-            return;
-        }
-
-        String message = getMessage(
-                "message.condense.resume",
-                "§aConverted [input] items into [output] output items."
-        )
-                .replace("[input]", String.valueOf(result.totalInputConsumed()))
-                .replace("[output]", String.valueOf(result.totalProduced()));
-
-        player.sendMessage(message);
-
-        if (result.usedSmallRecipeBypass() && result.blockedByCraftingRequirement()) {
-            String hint = getMessage(
-                    "message.info.more_available_at_crafting_table",
-                    "§7More materials can be condensed at a crafting table."
-            );
-            player.sendMessage(hint);
-        }
-
-        if (result.totalAdditionalSlotsNeeded() > 0) {
-            sendInventoryFullMessages(player, result.inventoryFailures());
-            sendInventoryFullSummary(player, result.totalAdditionalSlotsNeeded());
+        } finally {
+            plugin.clearAllCondenseInputsExcludedNextRun(playerId);
         }
     }
 
@@ -206,11 +271,18 @@ public final class CondenseCommand implements TabExecutor, Listener {
             @NotNull String alias,
             @NotNull String[] args
     ) {
-        if (args.length == 1 && sender.hasPermission("condense.reload")) {
+        if (args.length == 1) {
             String input = args[0].toLowerCase(Locale.ROOT);
-            if ("reload".startsWith(input)) {
-                return Collections.singletonList("reload");
+            List<String> completions = new ArrayList<>();
+
+            if ("exclude".startsWith(input)) {
+                completions.add("exclude");
             }
+            if (sender.hasPermission("condense.reload") && "reload".startsWith(input)) {
+                completions.add("reload");
+            }
+
+            return completions;
         }
 
         return Collections.emptyList();
@@ -239,7 +311,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
             String message = getMessage(
                     "message.error.invalid_crafting_table_mode",
-                    "§4This plugin is misconfigured: invalid crafting table mode '[mode]'. Please contact an admin."
+                    "This plugin is misconfigured: invalid crafting table mode '[mode]'. Please contact an admin."
             ).replace("[mode]", String.valueOf(rawMode));
 
             return new CraftingRequirementState(
@@ -349,15 +421,15 @@ public final class CondenseCommand implements TabExecutor, Listener {
             case DISABLED -> "";
             case INVENTORY_ONLY -> getMessage(
                     "message.error.crafting_table_required_inventory",
-                    "§4You must have a crafting table in your inventory to use this command."
+                    "You must have a crafting table in your inventory to use this command."
             );
             case NEARBY_ONLY -> getMessage(
                     "message.error.crafting_table_required_nearby",
-                    "§4You must be within [range] blocks of a crafting table to use this command."
+                    "You must be within [range] blocks of a crafting table to use this command."
             ).replace("[range]", String.valueOf(craftingState.range()));
             case INVENTORY_OR_NEARBY -> getMessage(
                     "message.error.crafting_table_required_inventory_or_nearby",
-                    "§4You need a crafting table to use this command. Put one in your inventory or stand within [range] blocks of one."
+                    "You need a crafting table to use this command. Put one in your inventory or stand within [range] blocks of one."
             ).replace("[range]", String.valueOf(craftingState.range()));
         };
     }
@@ -390,7 +462,12 @@ public final class CondenseCommand implements TabExecutor, Listener {
             }
         }
 
-        FailureSummary finalFailureSummary = evaluateRemainingInventoryFailures(inventory, condenseSection, craftingState);
+        FailureSummary finalFailureSummary = evaluateRemainingInventoryFailures(
+                player.getUniqueId(),
+                inventory,
+                condenseSection,
+                craftingState
+        );
 
         return new CondenseResult(
                 totalProduced,
@@ -439,7 +516,8 @@ public final class CondenseCommand implements TabExecutor, Listener {
                 continue;
             }
 
-            if (plugin.isCondenseInputDisabled(input)) {
+            if (plugin.isCondenseInputDisabled(input)
+                    || plugin.isCondenseInputExcludedForRun(player.getUniqueId(), input)) {
                 continue;
             }
 
@@ -457,7 +535,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
             if (ratioIn <= 0 || ratioOut <= 0) {
                 String message = getMessage(
                         "message.error.ratio_zero",
-                        "§4Attention: the conversion ratio of [item1] is invalid."
+                        "Attention: the conversion ratio of [item1] is invalid."
                 ).replace("[item1]", getItemName(input));
 
                 player.sendMessage(message);
@@ -521,6 +599,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
     }
 
     private FailureSummary evaluateRemainingInventoryFailures(
+            final UUID playerId,
             final PlayerInventory inventory,
             final ConfigurationSection condenseSection,
             final CraftingRequirementState craftingState
@@ -545,7 +624,9 @@ public final class CondenseCommand implements TabExecutor, Listener {
             }
 
             Material input = Material.matchMaterial(key);
-            if (input == null || plugin.isCondenseInputDisabled(input)) {
+            if (input == null
+                    || plugin.isCondenseInputDisabled(input)
+                    || plugin.isCondenseInputExcludedForRun(playerId, input)) {
                 continue;
             }
 
@@ -639,7 +720,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
                 String message = getMessage(
                         "message.error.inventory_full",
-                        "§4Inventory full: [item1] → [item2]"
+                        "Inventory full: [item1] -> [item2]"
                 ).replace("[item1]", fullInput)
                  .replace("[item2]", result);
 
@@ -656,7 +737,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
             String message = getMessage(
                     "message.condense.item",
-                    "§a[item1] → [item2]"
+                    "[item1] -> [item2]"
             ).replace("[item1]", item1)
              .replace("[item2]", item2);
 
@@ -682,7 +763,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
             String message = getMessage(
                     "message.error.inventory_full",
-                    "§4Inventory full: [item1] → [item2]"
+                    "Inventory full: [item1] -> [item2]"
             ).replace("[item1]", fullInput)
              .replace("[item2]", result);
 
@@ -693,7 +774,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
     private void sendInventoryFullSummary(final Player player, final int totalAdditionalSlotsNeeded) {
         String summary = getMessage(
                 "message.error.inventory_full_summary",
-                "§6Inventory full summary: [slots] additional slot(s) would have been needed in total."
+                "Inventory full summary: [slots] additional slot(s) would have been needed in total."
         ).replace("[slots]", String.valueOf(totalAdditionalSlotsNeeded));
 
         player.sendMessage(summary);
@@ -778,6 +859,355 @@ public final class CondenseCommand implements TabExecutor, Listener {
         }
 
         return leftovers;
+    }
+
+    private void openExcludeMenu(final Player player, final int page) {
+        List<Material> configuredInputs = getConfiguredInputMaterials();
+        if (configuredInputs.isEmpty()) {
+            player.sendMessage(Component.text("No condense inputs are currently configured.", NamedTextColor.YELLOW));
+            return;
+        }
+
+        int totalPages = getExcludeMenuPageCount(configuredInputs.size());
+        int safePage = Math.max(0, Math.min(page, totalPages - 1));
+        excludeMenuSessions.computeIfAbsent(
+                player.getUniqueId(),
+                ignored -> new ExcludeMenuSession(
+                        plugin.getCondenseInputExcludedPersistentSnapshot(player.getUniqueId()),
+                        plugin.getCondenseInputExcludedNextRunSnapshot(player.getUniqueId())
+                )
+        );
+
+        ExcludeMenuHolder holder = new ExcludeMenuHolder(player.getUniqueId(), safePage);
+        Inventory inventory = Bukkit.createInventory(
+                holder,
+                EXCLUDE_MENU_SIZE,
+                Component.text("Condense Exclusions", NamedTextColor.DARK_GREEN)
+        );
+        holder.setInventory(inventory);
+        renderExcludeMenu(inventory, player, holder, configuredInputs, safePage, totalPages);
+        player.openInventory(inventory);
+    }
+
+    private void handleExcludeMenuClick(final InventoryClickEvent event, final ExcludeMenuHolder holder) {
+        event.setCancelled(true);
+
+        if (!(event.getWhoClicked() instanceof Player player)) {
+            return;
+        }
+
+        int rawSlot = event.getRawSlot();
+        if (rawSlot < 0 || rawSlot >= event.getView().getTopInventory().getSize()) {
+            return;
+        }
+
+        List<Material> configuredInputs = getConfiguredInputMaterials();
+        int totalPages = getExcludeMenuPageCount(configuredInputs.size());
+
+        if (rawSlot < EXCLUDE_MENU_CONTENT_SIZE) {
+            int materialIndex = (holder.page() * EXCLUDE_MENU_CONTENT_SIZE) + rawSlot;
+            if (materialIndex >= configuredInputs.size()) {
+                return;
+            }
+
+            Material material = configuredInputs.get(materialIndex);
+            if (event.getClick().isRightClick()) {
+                boolean excluded = plugin.toggleCondenseInputExcluded(player.getUniqueId(), material);
+                plugin.clearCondenseInputExcludedNextRun(player.getUniqueId(), material);
+
+                refreshExcludeMenuItem(event, rawSlot, player, material, holder.page(), totalPages);
+
+                if (excluded) {
+                    player.sendMessage(
+                            Component.text(getItemName(material), NamedTextColor.RED)
+                                    .append(Component.text(" is now persistently excluded from condensing.", NamedTextColor.GRAY))
+                    );
+                } else {
+                    player.sendMessage(
+                            Component.text(getItemName(material), NamedTextColor.GREEN)
+                                    .append(Component.text(" is no longer persistently excluded.", NamedTextColor.GRAY))
+                    );
+                }
+                return;
+            }
+
+            if (!event.getClick().isLeftClick()) {
+                return;
+            }
+
+            if (plugin.isCondenseInputExcluded(player.getUniqueId(), material)) {
+                player.sendMessage(
+                        Component.text(getItemName(material), NamedTextColor.RED)
+                                .append(Component.text(" is already persistently excluded. Right-click it to re-include.", NamedTextColor.GRAY))
+                );
+                return;
+            }
+
+            boolean excluded = plugin.toggleCondenseInputExcludedNextRun(player.getUniqueId(), material);
+            refreshExcludeMenuItem(event, rawSlot, player, material, holder.page(), totalPages);
+
+            if (excluded) {
+                player.sendMessage(
+                        Component.text(getItemName(material), NamedTextColor.YELLOW)
+                                .append(Component.text(" will be skipped on the next condense run only.", NamedTextColor.GRAY))
+                );
+            } else {
+                player.sendMessage(
+                        Component.text(getItemName(material), NamedTextColor.GREEN)
+                                .append(Component.text(" will no longer be skipped on the next condense run.", NamedTextColor.GRAY))
+                );
+            }
+            return;
+        }
+
+        if (rawSlot == EXCLUDE_MENU_CANCEL_SLOT) {
+            ExcludeMenuSession session = excludeMenuSessions.get(player.getUniqueId());
+            if (session != null) {
+                boolean restored = plugin.replaceCondenseInputExcludedPersistent(
+                        player.getUniqueId(),
+                        session.initialPersistentExclusions()
+                );
+                plugin.replaceCondenseInputExcludedNextRun(
+                        player.getUniqueId(),
+                        session.initialNextRunExclusions()
+                );
+
+                if (restored) {
+                    player.sendMessage(Component.text("Exclusion changes canceled.", NamedTextColor.YELLOW));
+                } else {
+                    player.sendMessage(Component.text(
+                            "Could not fully restore exclusion changes. Check the server log.",
+                            NamedTextColor.RED
+                    ));
+                }
+            }
+
+            excludeMenuSessions.remove(player.getUniqueId());
+            Bukkit.getScheduler().runTask(plugin, () -> player.closeInventory());
+            return;
+        }
+
+        if (rawSlot == EXCLUDE_MENU_PREVIOUS_SLOT && holder.page() > 0) {
+            renderCurrentExcludeMenu(event.getView().getTopInventory(), player, holder, holder.page() - 1, totalPages);
+            return;
+        }
+
+        if (rawSlot == EXCLUDE_MENU_NEXT_SLOT && holder.page() + 1 < totalPages) {
+            renderCurrentExcludeMenu(event.getView().getTopInventory(), player, holder, holder.page() + 1, totalPages);
+        }
+    }
+
+    private void fillExcludeMenuControls(final Inventory inventory, final int page, final int totalPages) {
+        for (int slot = EXCLUDE_MENU_CONTENT_SIZE; slot < EXCLUDE_MENU_SIZE; slot++) {
+            inventory.setItem(slot, createMenuFillerItem());
+        }
+
+        inventory.setItem(EXCLUDE_MENU_INFO_SLOT, createExcludeMenuInfoItem(page, totalPages));
+
+        if (page > 0) {
+            inventory.setItem(
+                    EXCLUDE_MENU_PREVIOUS_SLOT,
+                    createMenuControlItem(Material.ARROW, "Previous Page", NamedTextColor.YELLOW)
+            );
+        }
+
+        if (page + 1 < totalPages) {
+            inventory.setItem(
+                    EXCLUDE_MENU_NEXT_SLOT,
+                    createMenuControlItem(Material.ARROW, "Next Page", NamedTextColor.YELLOW)
+            );
+        }
+
+        inventory.setItem(
+                EXCLUDE_MENU_CANCEL_SLOT,
+                createMenuControlItem(Material.BARRIER, "Cancel Changes", NamedTextColor.RED)
+        );
+    }
+
+    private ItemStack createExcludeMenuItem(final Player player, final Material material) {
+        ItemStack item = new ItemStack(material);
+        ItemMeta meta = item.getItemMeta();
+
+        boolean persistentExcluded = plugin.isCondenseInputExcluded(player.getUniqueId(), material);
+        boolean nextRunExcluded = plugin.isCondenseInputExcludedNextRun(player.getUniqueId(), material);
+        Component statusPrefix = persistentExcluded
+                ? Component.text("X ", NamedTextColor.RED)
+                : nextRunExcluded
+                ? Component.text("! ", NamedTextColor.YELLOW)
+                : Component.text("OK ", NamedTextColor.GREEN);
+        Component materialName = Component.text(
+                getItemName(material),
+                persistentExcluded ? NamedTextColor.GRAY : nextRunExcluded ? NamedTextColor.YELLOW : NamedTextColor.WHITE
+        );
+
+        meta.setEnchantmentGlintOverride(persistentExcluded || nextRunExcluded);
+        meta.displayName(statusPrefix.append(materialName).decoration(TextDecoration.ITALIC, false));
+        if (persistentExcluded) {
+            meta.lore(List.of(
+                    Component.text("Persistent exclusion is active.", NamedTextColor.RED)
+                            .decoration(TextDecoration.ITALIC, false),
+                    Component.text("This slot glows to show an active exclusion.", NamedTextColor.DARK_RED)
+                            .decoration(TextDecoration.ITALIC, false),
+                    Component.text("Right-click to include this item again.", NamedTextColor.GRAY)
+                            .decoration(TextDecoration.ITALIC, false),
+                    Component.text("Left-click is unavailable while persistent exclusion is active.", NamedTextColor.DARK_GRAY)
+                            .decoration(TextDecoration.ITALIC, false)
+            ));
+        } else if (nextRunExcluded) {
+            meta.lore(List.of(
+                    Component.text("This item will be skipped on the next condense run only.", NamedTextColor.YELLOW)
+                            .decoration(TextDecoration.ITALIC, false),
+                    Component.text("The slot glow marks a temporary exclusion.", NamedTextColor.GOLD)
+                            .decoration(TextDecoration.ITALIC, false),
+                    Component.text("Left-click to remove the one-time skip.", NamedTextColor.GRAY)
+                            .decoration(TextDecoration.ITALIC, false),
+                    Component.text("Right-click to make the exclusion persistent.", NamedTextColor.GRAY)
+                            .decoration(TextDecoration.ITALIC, false)
+            ));
+        } else {
+            meta.lore(List.of(
+                    Component.text("No exclusion is active.", NamedTextColor.GREEN)
+                            .decoration(TextDecoration.ITALIC, false),
+                    Component.text("Left-click to skip it on the next run only.", NamedTextColor.GRAY)
+                            .decoration(TextDecoration.ITALIC, false),
+                    Component.text("Right-click to exclude it persistently.", NamedTextColor.GRAY)
+                            .decoration(TextDecoration.ITALIC, false)
+            ));
+        }
+
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    private ItemStack createExcludeMenuInfoItem(final int page, final int totalPages) {
+        ItemStack item = new ItemStack(Material.BOOK);
+        ItemMeta meta = item.getItemMeta();
+
+        meta.displayName(
+                Component.text("Toggle Condense Inputs", NamedTextColor.GOLD)
+                        .decoration(TextDecoration.ITALIC, false)
+        );
+        meta.lore(List.of(
+                Component.text("Left-click: skip on the next condense run only.", NamedTextColor.GRAY)
+                        .decoration(TextDecoration.ITALIC, false),
+                Component.text("Right-click: toggle a persistent exclusion.", NamedTextColor.GRAY)
+                        .decoration(TextDecoration.ITALIC, false),
+                Component.text("Glowing slots have an active exclusion.", NamedTextColor.GRAY)
+                        .decoration(TextDecoration.ITALIC, false),
+                Component.text("Red X = persistent, yellow ! = next run only.", NamedTextColor.GRAY)
+                        .decoration(TextDecoration.ITALIC, false),
+                Component.text("Use the red X button to cancel all edits from this menu.", NamedTextColor.RED)
+                        .decoration(TextDecoration.ITALIC, false),
+                Component.text("Page " + (page + 1) + " of " + totalPages, NamedTextColor.YELLOW)
+                        .decoration(TextDecoration.ITALIC, false)
+        ));
+
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    private ItemStack createMenuControlItem(
+            final Material material,
+            final String name,
+            final NamedTextColor color
+    ) {
+        ItemStack item = new ItemStack(material);
+        ItemMeta meta = item.getItemMeta();
+
+        meta.displayName(Component.text(name, color).decoration(TextDecoration.ITALIC, false));
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    private ItemStack createMenuFillerItem() {
+        ItemStack item = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
+        ItemMeta meta = item.getItemMeta();
+
+        meta.displayName(Component.text(" ", NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false));
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    private List<Material> getConfiguredInputMaterials() {
+        ConfigurationSection condenseSection = plugin.getConfig().getConfigurationSection("condense");
+        if (condenseSection == null) {
+            return Collections.emptyList();
+        }
+
+        List<Material> configuredInputs = new ArrayList<>();
+        for (String key : condenseSection.getKeys(false)) {
+            Material material = Material.matchMaterial(key);
+            if (material == null || !material.isItem()) {
+                continue;
+            }
+
+            configuredInputs.add(material);
+        }
+
+        configuredInputs.sort(Comparator.comparing(this::getItemName));
+        return configuredInputs;
+    }
+
+    private int getExcludeMenuPageCount(final int materialCount) {
+        return Math.max(1, (int) Math.ceil((double) materialCount / EXCLUDE_MENU_CONTENT_SIZE));
+    }
+
+    private void renderCurrentExcludeMenu(
+            final Inventory inventory,
+            final Player player,
+            final ExcludeMenuHolder holder,
+            final int page,
+            final int totalPages
+    ) {
+        List<Material> configuredInputs = getConfiguredInputMaterials();
+        int safePage = Math.max(0, Math.min(page, Math.max(0, totalPages - 1)));
+        excludeMenuSessions.computeIfAbsent(
+                player.getUniqueId(),
+                ignored -> new ExcludeMenuSession(
+                        plugin.getCondenseInputExcludedPersistentSnapshot(player.getUniqueId()),
+                        plugin.getCondenseInputExcludedNextRunSnapshot(player.getUniqueId())
+                )
+        );
+        renderExcludeMenu(inventory, player, holder, configuredInputs, safePage, getExcludeMenuPageCount(configuredInputs.size()));
+    }
+
+    private void renderExcludeMenu(
+            final Inventory inventory,
+            final Player player,
+            final ExcludeMenuHolder holder,
+            final List<Material> configuredInputs,
+            final int page,
+            final int totalPages
+    ) {
+        inventory.clear();
+        holder.setPage(page);
+
+        int startIndex = page * EXCLUDE_MENU_CONTENT_SIZE;
+        for (int slot = 0; slot < EXCLUDE_MENU_CONTENT_SIZE; slot++) {
+            int materialIndex = startIndex + slot;
+            if (materialIndex >= configuredInputs.size()) {
+                break;
+            }
+
+            inventory.setItem(slot, createExcludeMenuItem(player, configuredInputs.get(materialIndex)));
+        }
+
+        fillExcludeMenuControls(inventory, page, totalPages);
+    }
+
+    private void refreshExcludeMenuItem(
+            final InventoryClickEvent event,
+            final int rawSlot,
+            final Player player,
+            final Material material,
+            final int page,
+            final int totalPages
+    ) {
+        event.getView().getTopInventory().setItem(rawSlot, createExcludeMenuItem(player, material));
+        event.getView().getTopInventory().setItem(
+                EXCLUDE_MENU_INFO_SLOT,
+                createExcludeMenuInfoItem(page, totalPages)
+        );
     }
 
     private String getMessage(final String path, final String fallback) {
@@ -885,5 +1315,44 @@ public final class CondenseCommand implements TabExecutor, Listener {
             boolean bypassForSmallRecipes,
             int bypassMaxRatioIn
     ) {
+    }
+
+    private record ExcludeMenuSession(
+            Set<Material> initialPersistentExclusions,
+            Set<Material> initialNextRunExclusions
+    ) {
+    }
+
+    private static final class ExcludeMenuHolder implements InventoryHolder {
+
+        private final UUID playerId;
+        private int page;
+        private Inventory inventory;
+
+        private ExcludeMenuHolder(final UUID playerId, final int page) {
+            this.playerId = playerId;
+            this.page = page;
+        }
+
+        @Override
+        public Inventory getInventory() {
+            return inventory;
+        }
+
+        private int page() {
+            return page;
+        }
+
+        private UUID playerId() {
+            return playerId;
+        }
+
+        private void setPage(final int page) {
+            this.page = page;
+        }
+
+        private void setInventory(final Inventory inventory) {
+            this.inventory = inventory;
+        }
     }
 }

@@ -1,6 +1,7 @@
 package crosis47.minecraft.condense;
 
 import crosis47.minecraft.condense.commands.CondenseCommand;
+import crosis47.minecraft.condense.storage.PlayerExclusionStore;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
@@ -20,15 +21,20 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.persistence.PersistentDataType;
 
+import java.io.File;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
+import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
+import java.util.Map;
 
 public final class CondensePlugin extends JavaPlugin {
 
@@ -36,9 +42,12 @@ public final class CondensePlugin extends JavaPlugin {
     private static final String DEFAULT_CONDENSER_NAME = "Condenser";
 
     private final Set<Material> disabledCondenseInputs = new HashSet<>();
+    private final Map<UUID, Set<Material>> excludedCondenseInputsByPlayer = new HashMap<>();
+    private final Map<UUID, Set<Material>> nextRunExcludedCondenseInputsByPlayer = new HashMap<>();
 
     private NamespacedKey condenserRecipeKey;
     private NamespacedKey condenserItemKey;
+    private PlayerExclusionStore playerExclusionStore;
 
     @Override
     public void onEnable() {
@@ -48,6 +57,20 @@ public final class CondensePlugin extends JavaPlugin {
         saveDefaultConfig();
         updateConfigIfNeeded();
         validateConfig();
+        try {
+            playerExclusionStore = new PlayerExclusionStore(
+                    this,
+                    new File(getDataFolder(), "player-exclusions.db"),
+                    new File(getDataFolder(), "player-exclusions.yml")
+            );
+            playerExclusionStore.initialize();
+            reloadPersistentExclusionsFromStore();
+        } catch (Exception ex) {
+            getLogger().severe("Failed to initialize SQLite player exclusion storage: " + ex.getMessage());
+            ex.printStackTrace();
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
 
         PluginCommand condenseCommand = Objects.requireNonNull(
                 getCommand("condense"),
@@ -75,6 +98,7 @@ public final class CondensePlugin extends JavaPlugin {
         reloadConfig();
         updateConfigIfNeeded();
         validateConfig();
+        reloadPersistentExclusionsFromStore();
         refreshCondenserRecipe();
         cleanupCondenserItemsForOnlinePlayers();
     }
@@ -85,6 +109,217 @@ public final class CondensePlugin extends JavaPlugin {
 
     public Set<Material> getDisabledCondenseInputs() {
         return Collections.unmodifiableSet(disabledCondenseInputs);
+    }
+
+    public boolean isCondenseInputExcluded(final UUID playerId, final Material material) {
+        if (playerId == null || material == null) {
+            return false;
+        }
+
+        Set<Material> excludedInputs = excludedCondenseInputsByPlayer.get(playerId);
+        return excludedInputs != null && excludedInputs.contains(material);
+    }
+
+    public boolean isCondenseInputExcludedNextRun(final UUID playerId, final Material material) {
+        if (playerId == null || material == null) {
+            return false;
+        }
+
+        Set<Material> excludedInputs = nextRunExcludedCondenseInputsByPlayer.get(playerId);
+        return excludedInputs != null && excludedInputs.contains(material);
+    }
+
+    public boolean isCondenseInputExcludedForRun(final UUID playerId, final Material material) {
+        return isCondenseInputExcluded(playerId, material)
+                || isCondenseInputExcludedNextRun(playerId, material);
+    }
+
+    public Set<Material> getCondenseInputExcludedPersistentSnapshot(final UUID playerId) {
+        return copyMaterialSet(excludedCondenseInputsByPlayer.get(playerId));
+    }
+
+    public Set<Material> getCondenseInputExcludedNextRunSnapshot(final UUID playerId) {
+        return copyMaterialSet(nextRunExcludedCondenseInputsByPlayer.get(playerId));
+    }
+
+    public boolean toggleCondenseInputExcluded(final UUID playerId, final Material material) {
+        return setCondenseInputExcluded(playerId, material, !isCondenseInputExcluded(playerId, material));
+    }
+
+    public boolean setCondenseInputExcluded(final UUID playerId, final Material material, final boolean excluded) {
+        if (playerId == null || material == null) {
+            return false;
+        }
+
+        if (playerExclusionStore == null) {
+            getLogger().warning("Persistent exclusion store is not available.");
+            return isCondenseInputExcluded(playerId, material);
+        }
+
+        try {
+            playerExclusionStore.setPersistentExclusion(playerId, material, excluded);
+        } catch (Exception ex) {
+            getLogger().severe("Failed to update persistent SQLite exclusion for player " + playerId
+                    + " and material " + material + ": " + ex.getMessage());
+            ex.printStackTrace();
+            return !excluded;
+        }
+
+        Set<Material> excludedInputs = excludedCondenseInputsByPlayer.computeIfAbsent(
+                playerId,
+                ignored -> EnumSet.noneOf(Material.class)
+        );
+
+        if (excluded) {
+            excludedInputs.add(material);
+        } else {
+            excludedInputs.remove(material);
+        }
+
+        if (excludedInputs.isEmpty()) {
+            excludedCondenseInputsByPlayer.remove(playerId);
+        }
+
+        return excluded;
+    }
+
+    public boolean toggleCondenseInputExcludedNextRun(final UUID playerId, final Material material) {
+        return setCondenseInputExcludedNextRun(playerId, material, !isCondenseInputExcludedNextRun(playerId, material));
+    }
+
+    public boolean setCondenseInputExcludedNextRun(final UUID playerId, final Material material, final boolean excluded) {
+        if (playerId == null || material == null) {
+            return false;
+        }
+
+        Set<Material> excludedInputs = nextRunExcludedCondenseInputsByPlayer.computeIfAbsent(
+                playerId,
+                ignored -> EnumSet.noneOf(Material.class)
+        );
+
+        if (excludedInputs.contains(material)) {
+            if (!excluded) {
+                excludedInputs.remove(material);
+            }
+        } else if (excluded) {
+            excludedInputs.add(material);
+        }
+
+        if (excludedInputs.isEmpty()) {
+            nextRunExcludedCondenseInputsByPlayer.remove(playerId);
+        }
+
+        return excluded;
+    }
+
+    public void clearCondenseInputExcludedNextRun(final UUID playerId, final Material material) {
+        if (playerId == null || material == null) {
+            return;
+        }
+
+        Set<Material> excludedInputs = nextRunExcludedCondenseInputsByPlayer.get(playerId);
+        if (excludedInputs == null) {
+            return;
+        }
+
+        excludedInputs.remove(material);
+        if (excludedInputs.isEmpty()) {
+            nextRunExcludedCondenseInputsByPlayer.remove(playerId);
+        }
+    }
+
+    public void clearAllCondenseInputsExcludedNextRun(final UUID playerId) {
+        if (playerId == null) {
+            return;
+        }
+
+        nextRunExcludedCondenseInputsByPlayer.remove(playerId);
+    }
+
+    public boolean replaceCondenseInputExcludedPersistent(
+            final UUID playerId,
+            final Set<Material> materials
+    ) {
+        if (playerId == null) {
+            return false;
+        }
+
+        Set<Material> sanitized = sanitizeMaterialSet(materials);
+        if (playerExclusionStore == null) {
+            getLogger().warning("Persistent exclusion store is not available.");
+            return false;
+        }
+
+        try {
+            playerExclusionStore.replacePersistentExclusions(playerId, sanitized);
+        } catch (Exception ex) {
+            getLogger().severe("Failed to replace persistent SQLite exclusions for player " + playerId
+                    + ": " + ex.getMessage());
+            ex.printStackTrace();
+            return false;
+        }
+
+        if (sanitized.isEmpty()) {
+            excludedCondenseInputsByPlayer.remove(playerId);
+        } else {
+            excludedCondenseInputsByPlayer.put(playerId, sanitized);
+        }
+
+        return true;
+    }
+
+    public void replaceCondenseInputExcludedNextRun(
+            final UUID playerId,
+            final Set<Material> materials
+    ) {
+        if (playerId == null) {
+            return;
+        }
+
+        Set<Material> sanitized = sanitizeMaterialSet(materials);
+        if (sanitized.isEmpty()) {
+            nextRunExcludedCondenseInputsByPlayer.remove(playerId);
+        } else {
+            nextRunExcludedCondenseInputsByPlayer.put(playerId, sanitized);
+        }
+    }
+
+    private void reloadPersistentExclusionsFromStore() {
+        excludedCondenseInputsByPlayer.clear();
+
+        if (playerExclusionStore == null) {
+            return;
+        }
+
+        try {
+            excludedCondenseInputsByPlayer.putAll(playerExclusionStore.loadPersistentExclusions());
+        } catch (Exception ex) {
+            getLogger().severe("Failed to load persistent SQLite exclusions: " + ex.getMessage());
+            ex.printStackTrace();
+        }
+    }
+
+    private Set<Material> copyMaterialSet(final Set<Material> materials) {
+        if (materials == null || materials.isEmpty()) {
+            return EnumSet.noneOf(Material.class);
+        }
+
+        return EnumSet.copyOf(materials);
+    }
+
+    private Set<Material> sanitizeMaterialSet(final Set<Material> materials) {
+        Set<Material> sanitized = EnumSet.noneOf(Material.class);
+        if (materials == null) {
+            return sanitized;
+        }
+
+        for (Material material : materials) {
+            if (material != null && material.isItem()) {
+                sanitized.add(material);
+            }
+        }
+
+        return sanitized;
     }
 
     public ActivationMode getActivationMode() {
@@ -639,4 +874,5 @@ public final class CondensePlugin extends JavaPlugin {
 
         return recipe;
     }
+
 }
