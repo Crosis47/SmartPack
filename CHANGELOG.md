@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.2] - 2026-04-24
+
+### Fixed
+- Added a short multi-tick settle window to `/condense` so newly picked-up items can join the same condense run after inventory space opens.
+- Prevented stale condense snapshots from overwriting inventory changes that happen while a condense attempt is preparing its simulated result.
+- Moved exclusion GUI persistence off the main thread and collapsed persistent exclusion saves to one async SQLite write per applied menu session.
+- Stopped shading SQLite into the plugin jar so the plugin now relies on Paper's packaged SQLite driver.
+
+---
+
 ## [1.3.1] - 2026-04-24
 
 ### Added

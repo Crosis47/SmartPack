@@ -20,6 +20,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 
 public final class PlayerExclusionStore {
 
@@ -28,6 +34,7 @@ public final class PlayerExclusionStore {
     private final JavaPlugin plugin;
     private final File databaseFile;
     private final File legacyYamlFile;
+    private final ExecutorService writeExecutor;
 
     public PlayerExclusionStore(
             final JavaPlugin plugin,
@@ -37,6 +44,14 @@ public final class PlayerExclusionStore {
         this.plugin = plugin;
         this.databaseFile = databaseFile;
         this.legacyYamlFile = legacyYamlFile;
+        this.writeExecutor = Executors.newSingleThreadExecutor(new ThreadFactory() {
+            @Override
+            public Thread newThread(final Runnable runnable) {
+                Thread thread = new Thread(runnable, plugin.getName() + "-sqlite-writer");
+                thread.setDaemon(true);
+                return thread;
+            }
+        });
     }
 
     public synchronized void initialize() throws SQLException {
@@ -134,6 +149,51 @@ public final class PlayerExclusionStore {
             } finally {
                 connection.setAutoCommit(originalAutoCommit);
             }
+        }
+    }
+
+    public void replacePersistentExclusionsAsync(
+            final UUID playerId,
+            final Set<Material> materials
+    ) {
+        Set<Material> snapshot = materials == null || materials.isEmpty()
+                ? EnumSet.noneOf(Material.class)
+                : EnumSet.copyOf(materials);
+
+        writeExecutor.execute(() -> {
+            try {
+                replacePersistentExclusions(playerId, snapshot);
+            } catch (Exception ex) {
+                plugin.getLogger().severe("Failed to persist SQLite exclusions asynchronously for player "
+                        + playerId + ": " + ex.getMessage());
+                ex.printStackTrace();
+            }
+        });
+    }
+
+    public void flushPendingWrites() throws SQLException {
+        try {
+            Future<?> barrier = writeExecutor.submit(() -> {
+                // Barrier task so callers can wait for earlier writes to finish.
+            });
+            barrier.get();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new SQLException("Interrupted while waiting for pending SQLite writes to finish.", ex);
+        } catch (ExecutionException ex) {
+            throw new SQLException("Failed while waiting for pending SQLite writes to finish.", ex.getCause());
+        }
+    }
+
+    public void shutdown() {
+        writeExecutor.shutdown();
+        try {
+            if (!writeExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+                writeExecutor.shutdownNow();
+            }
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            writeExecutor.shutdownNow();
         }
     }
 

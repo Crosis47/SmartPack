@@ -36,9 +36,11 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.StringJoiner;
 import java.util.UUID;
@@ -52,9 +54,12 @@ public final class CondenseCommand implements TabExecutor, Listener {
     private static final int EXCLUDE_MENU_NEXT_SLOT = 50;
     private static final int EXCLUDE_MENU_APPLY_SLOT = 52;
     private static final int EXCLUDE_MENU_CANCEL_SLOT = 53;
+    private static final long CONDENSE_PASS_DELAY_TICKS = 1L;
+    private static final int CONDENSE_SETTLE_TICKS = 10;
 
     private final CondensePlugin plugin;
     private final Map<UUID, ExcludeMenuSession> excludeMenuSessions = new HashMap<>();
+    private final Set<UUID> condenseInProgress = new HashSet<>();
 
     public CondenseCommand(final CondensePlugin plugin) {
         this.plugin = plugin;
@@ -195,6 +200,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
         }
 
         if (event.getPlayer() instanceof Player player) {
+            persistPersistentExclusionsIfChanged(player, session);
             sendExclusionChangesAppliedMessage(player);
         }
     }
@@ -216,30 +222,81 @@ public final class CondenseCommand implements TabExecutor, Listener {
     public void executeCondense(final Player player) {
         UUID playerId = player.getUniqueId();
 
+        if (!condenseInProgress.add(playerId)) {
+            player.sendMessage(Component.text("Condense is already running.", NamedTextColor.YELLOW));
+            return;
+        }
+
+        continueCondenseExecution(playerId, new CondenseExecution());
+    }
+
+    private void continueCondenseExecution(final UUID playerId, final CondenseExecution execution) {
+        Player player = Bukkit.getPlayer(playerId);
+        if (player == null || !player.isOnline()) {
+            cleanupCondenseExecution(playerId);
+            return;
+        }
+
         try {
             CraftingRequirementState craftingState = getCraftingRequirementState(player);
             if (!craftingState.valid()) {
                 player.sendMessage(craftingState.failureMessage());
+                cleanupCondenseExecution(playerId);
                 return;
             }
 
             CondenseResult result = condense(player, craftingState);
+            execution.merge(result);
 
-            if (result.totalProduced() == 0) {
-                if (result.totalAdditionalSlotsNeeded() > 0) {
-                    sendInventoryFullMessages(player, result.inventoryFailures());
-                    sendInventoryFullSummary(player, result.totalAdditionalSlotsNeeded());
-                    sendSkippedExcludedMaterialsMessage(player, result.skippedMaterials());
+            if (result.totalProduced() > 0 || result.inventoryChangedDuringRun()) {
+                execution.resetSettleTicks();
+                scheduleNextCondenseExecution(playerId, execution);
+                return;
+            }
+
+            if (execution.shouldWaitForInventoryToSettle()) {
+                execution.consumeSettleTick();
+                scheduleNextCondenseExecution(playerId, execution);
+                return;
+            }
+
+            finishCondenseExecution(player, craftingState, execution, result);
+        } catch (RuntimeException exception) {
+            cleanupCondenseExecution(playerId);
+            throw exception;
+        }
+    }
+
+    private void scheduleNextCondenseExecution(final UUID playerId, final CondenseExecution execution) {
+        Bukkit.getScheduler().runTaskLater(
+                plugin,
+                () -> continueCondenseExecution(playerId, execution),
+                CONDENSE_PASS_DELAY_TICKS
+        );
+    }
+
+    private void finishCondenseExecution(
+            final Player player,
+            final CraftingRequirementState craftingState,
+            final CondenseExecution execution,
+            final CondenseResult finalResult
+    ) {
+        try {
+            if (execution.totalProduced == 0) {
+                if (finalResult.totalAdditionalSlotsNeeded() > 0) {
+                    sendInventoryFullMessages(player, finalResult.inventoryFailures());
+                    sendInventoryFullSummary(player, finalResult.totalAdditionalSlotsNeeded());
+                    sendSkippedExcludedMaterialsMessage(player, finalResult.skippedMaterials());
                     return;
                 }
 
-                if (result.blockedByCraftingRequirement()) {
+                if (execution.blockedByCraftingRequirement) {
                     player.sendMessage(buildCraftingRequirementFailureMessage(craftingState));
-                    sendSkippedExcludedMaterialsMessage(player, result.skippedMaterials());
+                    sendSkippedExcludedMaterialsMessage(player, finalResult.skippedMaterials());
                     return;
                 }
 
-                if (!result.hadValidAttempt()) {
+                if (!execution.hadValidAttempt) {
                     String message = getMessage(
                             "message.error.nothing_to_condense",
                             "You do not have any valid materials to condense."
@@ -247,7 +304,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
                     player.sendMessage(message);
                 }
 
-                sendSkippedExcludedMaterialsMessage(player, result.skippedMaterials());
+                sendSkippedExcludedMaterialsMessage(player, finalResult.skippedMaterials());
                 return;
             }
 
@@ -255,12 +312,12 @@ public final class CondenseCommand implements TabExecutor, Listener {
                     "message.condense.resume",
                     "Converted [input] items into [output] output items."
             )
-                    .replace("[input]", String.valueOf(result.totalInputConsumed()))
-                    .replace("[output]", String.valueOf(result.totalProduced()));
+                    .replace("[input]", String.valueOf(execution.totalInputConsumed))
+                    .replace("[output]", String.valueOf(execution.totalProduced));
 
             player.sendMessage(message);
 
-            if (result.usedSmallRecipeBypass() && result.blockedByCraftingRequirement()) {
+            if (execution.usedSmallRecipeBypass && execution.blockedByCraftingRequirement) {
                 String hint = getMessage(
                         "message.info.more_available_at_crafting_table",
                         "More materials can be condensed at a crafting table."
@@ -268,15 +325,20 @@ public final class CondenseCommand implements TabExecutor, Listener {
                 player.sendMessage(hint);
             }
 
-            if (result.totalAdditionalSlotsNeeded() > 0) {
-                sendInventoryFullMessages(player, result.inventoryFailures());
-                sendInventoryFullSummary(player, result.totalAdditionalSlotsNeeded());
+            if (finalResult.totalAdditionalSlotsNeeded() > 0) {
+                sendInventoryFullMessages(player, finalResult.inventoryFailures());
+                sendInventoryFullSummary(player, finalResult.totalAdditionalSlotsNeeded());
             }
 
-            sendSkippedExcludedMaterialsMessage(player, result.skippedMaterials());
+            sendSkippedExcludedMaterialsMessage(player, finalResult.skippedMaterials());
         } finally {
-            plugin.clearAllCondenseInputsExcludedNextRun(playerId);
+            cleanupCondenseExecution(player.getUniqueId());
         }
+    }
+
+    private void cleanupCondenseExecution(final UUID playerId) {
+        condenseInProgress.remove(playerId);
+        plugin.clearAllCondenseInputsExcludedNextRun(playerId);
     }
 
     @Override
@@ -454,7 +516,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
         ConfigurationSection condenseSection = plugin.getConfig().getConfigurationSection("condense");
         if (condenseSection == null) {
             plugin.getLogger().warning("Missing 'condense' section in config.yml");
-            return new CondenseResult(0, 0, false, false, false, 0, Collections.emptyMap(), Collections.emptyList());
+            return new CondenseResult(0, 0, false, false, false, false, 0, Collections.emptyMap(), Collections.emptyList());
         }
 
         int totalProduced = 0;
@@ -462,6 +524,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
         boolean hadValidAttempt = false;
         boolean blockedByCraftingRequirement = false;
         boolean usedSmallRecipeBypass = false;
+        boolean inventoryChangedDuringRun = false;
 
         while (true) {
             PassResult passResult = runCondensePass(player, inventory, condenseSection, craftingState);
@@ -471,6 +534,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
             hadValidAttempt |= passResult.hadValidAttempt();
             blockedByCraftingRequirement |= passResult.blockedByCraftingRequirement();
             usedSmallRecipeBypass |= passResult.usedSmallRecipeBypass();
+            inventoryChangedDuringRun |= passResult.inventoryChangedDuringPass();
 
             if (!passResult.madeAnyChange()) {
                 break;
@@ -495,6 +559,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
                 hadValidAttempt,
                 blockedByCraftingRequirement,
                 usedSmallRecipeBypass,
+                inventoryChangedDuringRun,
                 finalFailureSummary.totalAdditionalSlotsNeeded(),
                 finalFailureSummary.failures(),
                 skippedMaterials
@@ -507,15 +572,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
             final ConfigurationSection condenseSection,
             final CraftingRequirementState craftingState
     ) {
-        ItemStack[] storage = inventory.getStorageContents();
-
-        Map<Material, Integer> itemCounts = new EnumMap<>(Material.class);
-        for (ItemStack item : storage) {
-            if (item == null || item.getType() == Material.AIR) {
-                continue;
-            }
-            itemCounts.merge(item.getType(), item.getAmount(), Integer::sum);
-        }
+        Map<Material, Integer> itemCounts = countContentsByMaterial(inventory.getStorageContents());
 
         int passProduced = 0;
         int inputConsumed = 0;
@@ -523,6 +580,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
         boolean madeAnyChange = false;
         boolean blockedByCraftingRequirement = false;
         boolean usedSmallRecipeBypass = false;
+        boolean inventoryChangedDuringPass = false;
 
         for (String key : condenseSection.getKeys(false)) {
             ConfigurationSection rule = condenseSection.getConfigurationSection(key);
@@ -585,13 +643,18 @@ public final class CondenseCommand implements TabExecutor, Listener {
                     player,
                     inventory,
                     input,
-                    available,
                     output,
                     ratioIn,
                     ratioOut,
                     true,
                     false
             );
+
+            if (attempt.inventoryChanged()) {
+                inventoryChangedDuringPass = true;
+                itemCounts = countContentsByMaterial(inventory.getStorageContents());
+                continue;
+            }
 
             if (attempt.produced() > 0) {
                 passProduced += attempt.produced();
@@ -601,11 +664,8 @@ public final class CondenseCommand implements TabExecutor, Listener {
                     usedSmallRecipeBypass = true;
                 }
 
-                int crafts = available / ratioIn;
-                int consumed = crafts * ratioIn;
-                inputConsumed += consumed;
-                itemCounts.put(input, available - consumed);
-                itemCounts.merge(output, attempt.produced(), Integer::sum);
+                inputConsumed += attempt.inputConsumed();
+                itemCounts = countContentsByMaterial(inventory.getStorageContents());
             }
         }
 
@@ -615,7 +675,8 @@ public final class CondenseCommand implements TabExecutor, Listener {
                 hadValidAttempt,
                 madeAnyChange,
                 blockedByCraftingRequirement,
-                usedSmallRecipeBypass
+                usedSmallRecipeBypass,
+                inventoryChangedDuringPass
         );
     }
 
@@ -625,15 +686,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
             final ConfigurationSection condenseSection,
             final CraftingRequirementState craftingState
     ) {
-        ItemStack[] storage = inventory.getStorageContents();
-
-        Map<Material, Integer> itemCounts = new EnumMap<>(Material.class);
-        for (ItemStack item : storage) {
-            if (item == null || item.getType() == Material.AIR) {
-                continue;
-            }
-            itemCounts.merge(item.getType(), item.getAmount(), Integer::sum);
-        }
+        Map<Material, Integer> itemCounts = countContentsByMaterial(inventory.getStorageContents());
 
         Map<Material, InventoryFailure> failures = new EnumMap<>(Material.class);
         int totalAdditionalSlotsNeeded = 0;
@@ -673,7 +726,6 @@ public final class CondenseCommand implements TabExecutor, Listener {
                     null,
                     inventory,
                     input,
-                    available,
                     output,
                     ratioIn,
                     ratioOut,
@@ -708,16 +760,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
             final PlayerInventory inventory,
             final ConfigurationSection condenseSection
     ) {
-        ItemStack[] storage = inventory.getStorageContents();
-
-        Map<Material, Integer> itemCounts = new EnumMap<>(Material.class);
-        for (ItemStack item : storage) {
-            if (item == null || item.getType() == Material.AIR) {
-                continue;
-            }
-
-            itemCounts.merge(item.getType(), item.getAmount(), Integer::sum);
-        }
+        Map<Material, Integer> itemCounts = countContentsByMaterial(inventory.getStorageContents());
 
         List<SkippedMaterial> skippedMaterials = new ArrayList<>();
         for (String key : condenseSection.getKeys(false)) {
@@ -744,28 +787,29 @@ public final class CondenseCommand implements TabExecutor, Listener {
             final Player player,
             final PlayerInventory inventory,
             final Material input,
-            final int availableInput,
             final Material output,
             final int ratioIn,
             final int ratioOut,
             final boolean sendSuccessMessages,
             final boolean sendInventoryFullMessages
     ) {
+        ItemStack[] liveContents = cloneContents(inventory.getStorageContents());
+        int availableInput = countMaterial(liveContents, input);
         int crafts = availableInput / ratioIn;
         if (crafts <= 0) {
-            return new AttemptResult(0, 0);
+            return new AttemptResult(0, 0, 0, false);
         }
 
         int toConsume = crafts * ratioIn;
         int toProduce = crafts * ratioOut;
         int leftoverInput = availableInput - toConsume;
 
-        ItemStack[] simulated = cloneContents(inventory.getStorageContents());
+        ItemStack[] simulated = cloneContents(liveContents);
 
         boolean removed = removeFromContents(simulated, input, toConsume);
         if (!removed) {
             plugin.getLogger().warning("Failed to remove expected input items for " + input);
-            return new AttemptResult(0, 0);
+            return new AttemptResult(0, 0, 0, false);
         }
 
         Map<Integer, ItemStack> leftovers = addToContents(simulated, new ItemStack(output, toProduce));
@@ -784,7 +828,11 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
                 player.sendMessage(message);
             }
-            return new AttemptResult(0, additionalSlotsNeeded);
+            return new AttemptResult(0, 0, additionalSlotsNeeded, false);
+        }
+
+        if (!storageContentsMatch(liveContents, inventory.getStorageContents())) {
+            return new AttemptResult(0, 0, 0, true);
         }
 
         inventory.setStorageContents(simulated);
@@ -802,7 +850,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
             player.sendMessage(message);
         }
 
-        return new AttemptResult(toProduce, 0);
+        return new AttemptResult(toProduce, toConsume, 0, false);
     }
 
     private void sendInventoryFullMessages(final Player player, final Map<Material, InventoryFailure> failures) {
@@ -863,6 +911,18 @@ public final class CondenseCommand implements TabExecutor, Listener {
         player.sendMessage(Component.text("Exclusion changes applied.", NamedTextColor.GREEN));
     }
 
+    private void persistPersistentExclusionsIfChanged(
+            final Player player,
+            final ExcludeMenuSession session
+    ) {
+        Set<Material> currentPersistent = plugin.getCondenseInputExcludedPersistentSnapshot(player.getUniqueId());
+        if (currentPersistent.equals(session.initialPersistentExclusions())) {
+            return;
+        }
+
+        plugin.saveCondenseInputExcludedPersistentAsync(player.getUniqueId());
+    }
+
     private int calculateAdditionalSlotsNeeded(final Map<Integer, ItemStack> leftovers, final int maxStackSize) {
         int totalRemainingItems = 0;
 
@@ -875,12 +935,52 @@ public final class CondenseCommand implements TabExecutor, Listener {
         return (int) Math.ceil((double) totalRemainingItems / maxStackSize);
     }
 
+    private Map<Material, Integer> countContentsByMaterial(final ItemStack[] storage) {
+        Map<Material, Integer> itemCounts = new EnumMap<>(Material.class);
+        for (ItemStack item : storage) {
+            if (item == null || item.getType() == Material.AIR) {
+                continue;
+            }
+
+            itemCounts.merge(item.getType(), item.getAmount(), Integer::sum);
+        }
+        return itemCounts;
+    }
+
+    private int countMaterial(final ItemStack[] contents, final Material material) {
+        int amount = 0;
+
+        for (ItemStack stack : contents) {
+            if (stack == null || stack.getType() != material) {
+                continue;
+            }
+
+            amount += stack.getAmount();
+        }
+
+        return amount;
+    }
+
     private ItemStack[] cloneContents(final ItemStack[] original) {
         ItemStack[] copy = new ItemStack[original.length];
         for (int i = 0; i < original.length; i++) {
             copy[i] = original[i] == null ? null : original[i].clone();
         }
         return copy;
+    }
+
+    private boolean storageContentsMatch(final ItemStack[] expected, final ItemStack[] actual) {
+        if (expected.length != actual.length) {
+            return false;
+        }
+
+        for (int i = 0; i < expected.length; i++) {
+            if (!Objects.equals(expected[i], actual[i])) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private boolean removeFromContents(final ItemStack[] contents, final Material material, int amount) {
@@ -1071,7 +1171,10 @@ public final class CondenseCommand implements TabExecutor, Listener {
         }
 
         if (rawSlot == EXCLUDE_MENU_APPLY_SLOT) {
-            excludeMenuSessions.remove(player.getUniqueId());
+            ExcludeMenuSession session = excludeMenuSessions.remove(player.getUniqueId());
+            if (session != null) {
+                persistPersistentExclusionsIfChanged(player, session);
+            }
             sendExclusionChangesAppliedMessage(player);
             Bukkit.getScheduler().runTask(plugin, () -> player.closeInventory());
             return;
@@ -1393,7 +1496,12 @@ public final class CondenseCommand implements TabExecutor, Listener {
         return result;
     }
 
-    private record AttemptResult(int produced, int additionalSlotsNeeded) {
+    private record AttemptResult(
+            int produced,
+            int inputConsumed,
+            int additionalSlotsNeeded,
+            boolean inventoryChanged
+    ) {
     }
 
     private record PassResult(
@@ -1402,7 +1510,8 @@ public final class CondenseCommand implements TabExecutor, Listener {
             boolean hadValidAttempt,
             boolean madeAnyChange,
             boolean blockedByCraftingRequirement,
-            boolean usedSmallRecipeBypass
+            boolean usedSmallRecipeBypass,
+            boolean inventoryChangedDuringPass
     ) {
     }
 
@@ -1428,6 +1537,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
             boolean hadValidAttempt,
             boolean blockedByCraftingRequirement,
             boolean usedSmallRecipeBypass,
+            boolean inventoryChangedDuringRun,
             int totalAdditionalSlotsNeeded,
             Map<Material, InventoryFailure> inventoryFailures,
             List<SkippedMaterial> skippedMaterials
@@ -1450,6 +1560,36 @@ public final class CondenseCommand implements TabExecutor, Listener {
             Set<Material> initialPersistentExclusions,
             Set<Material> initialNextRunExclusions
     ) {
+    }
+
+    private static final class CondenseExecution {
+
+        private int totalProduced;
+        private int totalInputConsumed;
+        private boolean hadValidAttempt;
+        private boolean blockedByCraftingRequirement;
+        private boolean usedSmallRecipeBypass;
+        private int settleTicksRemaining;
+
+        private void merge(final CondenseResult result) {
+            totalProduced += result.totalProduced();
+            totalInputConsumed += result.totalInputConsumed();
+            hadValidAttempt |= result.hadValidAttempt();
+            blockedByCraftingRequirement |= result.blockedByCraftingRequirement();
+            usedSmallRecipeBypass |= result.usedSmallRecipeBypass();
+        }
+
+        private void resetSettleTicks() {
+            settleTicksRemaining = CONDENSE_SETTLE_TICKS;
+        }
+
+        private boolean shouldWaitForInventoryToSettle() {
+            return settleTicksRemaining > 0;
+        }
+
+        private void consumeSettleTick() {
+            settleTicksRemaining--;
+        }
     }
 
     private static final class ExcludeMenuHolder implements InventoryHolder {

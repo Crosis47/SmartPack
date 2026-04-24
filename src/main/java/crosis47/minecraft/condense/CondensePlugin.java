@@ -91,6 +91,9 @@ public final class CondensePlugin extends JavaPlugin {
     @Override
     public void onDisable() {
         unregisterCondenserRecipe();
+        if (playerExclusionStore != null) {
+            playerExclusionStore.shutdown();
+        }
         getLogger().info("Condense Reforged disabled.");
     }
 
@@ -151,20 +154,6 @@ public final class CondensePlugin extends JavaPlugin {
             return false;
         }
 
-        if (playerExclusionStore == null) {
-            getLogger().warning("Persistent exclusion store is not available.");
-            return isCondenseInputExcluded(playerId, material);
-        }
-
-        try {
-            playerExclusionStore.setPersistentExclusion(playerId, material, excluded);
-        } catch (Exception ex) {
-            getLogger().severe("Failed to update persistent SQLite exclusion for player " + playerId
-                    + " and material " + material + ": " + ex.getMessage());
-            ex.printStackTrace();
-            return !excluded;
-        }
-
         Set<Material> excludedInputs = excludedCondenseInputsByPlayer.computeIfAbsent(
                 playerId,
                 ignored -> EnumSet.noneOf(Material.class)
@@ -181,6 +170,22 @@ public final class CondensePlugin extends JavaPlugin {
         }
 
         return excluded;
+    }
+
+    public void saveCondenseInputExcludedPersistentAsync(final UUID playerId) {
+        if (playerId == null) {
+            return;
+        }
+
+        if (playerExclusionStore == null) {
+            getLogger().warning("Persistent exclusion store is not available.");
+            return;
+        }
+
+        playerExclusionStore.replacePersistentExclusionsAsync(
+                playerId,
+                getCondenseInputExcludedPersistentSnapshot(playerId)
+        );
     }
 
     public boolean toggleCondenseInputExcludedNextRun(final UUID playerId, final Material material) {
@@ -245,19 +250,6 @@ public final class CondensePlugin extends JavaPlugin {
         }
 
         Set<Material> sanitized = sanitizeMaterialSet(materials);
-        if (playerExclusionStore == null) {
-            getLogger().warning("Persistent exclusion store is not available.");
-            return false;
-        }
-
-        try {
-            playerExclusionStore.replacePersistentExclusions(playerId, sanitized);
-        } catch (Exception ex) {
-            getLogger().severe("Failed to replace persistent SQLite exclusions for player " + playerId
-                    + ": " + ex.getMessage());
-            ex.printStackTrace();
-            return false;
-        }
 
         if (sanitized.isEmpty()) {
             excludedCondenseInputsByPlayer.remove(playerId);
@@ -292,6 +284,7 @@ public final class CondensePlugin extends JavaPlugin {
         }
 
         try {
+            playerExclusionStore.flushPendingWrites();
             excludedCondenseInputsByPlayer.putAll(playerExclusionStore.loadPersistentExclusions());
         } catch (Exception ex) {
             getLogger().severe("Failed to load persistent SQLite exclusions: " + ex.getMessage());
