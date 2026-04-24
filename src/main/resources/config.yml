@@ -139,6 +139,12 @@ message:
   # Informational messages
   info:
     more_available_at_crafting_table: "§7More materials can be condensed at a crafting table."
+    # Sent after a condense cycle when excluded input materials remain skipped in the
+    # player's storage inventory.
+    #
+    # Placeholders:
+    #   [items] = comma-separated list of skipped item amounts and materials
+    skipped_excluded_materials: "§eSkipped excluded materials in your inventory: [items]."
     use_condenser_item: "§eUse a Condenser from your inventory to condense materials."
 
   error:

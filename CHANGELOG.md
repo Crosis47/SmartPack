@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- Added a green apply button to the exclusion GUI so players can confirm current changes and close the menu without using the cancel control.
+- Added a skipped-materials readout after each condense cycle when excluded configured inputs remain in the player's inventory.
+- Added apply confirmation when the exclusion GUI is closed normally without using the cancel button.
+
 ---
 
 ## [1.3.0] - 2026-04-24

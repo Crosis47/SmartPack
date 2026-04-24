@@ -40,6 +40,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.StringJoiner;
 import java.util.UUID;
 
 public final class CondenseCommand implements TabExecutor, Listener {
@@ -49,6 +50,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
     private static final int EXCLUDE_MENU_PREVIOUS_SLOT = 45;
     private static final int EXCLUDE_MENU_INFO_SLOT = 49;
     private static final int EXCLUDE_MENU_NEXT_SLOT = 50;
+    private static final int EXCLUDE_MENU_APPLY_SLOT = 52;
     private static final int EXCLUDE_MENU_CANCEL_SLOT = 53;
 
     private final CondensePlugin plugin;
@@ -187,7 +189,14 @@ public final class CondenseCommand implements TabExecutor, Listener {
             return;
         }
 
-        excludeMenuSessions.remove(holder.playerId());
+        ExcludeMenuSession session = excludeMenuSessions.remove(holder.playerId());
+        if (session == null) {
+            return;
+        }
+
+        if (event.getPlayer() instanceof Player player) {
+            sendExclusionChangesAppliedMessage(player);
+        }
     }
 
     @EventHandler(ignoreCancelled = true)
@@ -220,11 +229,13 @@ public final class CondenseCommand implements TabExecutor, Listener {
                 if (result.totalAdditionalSlotsNeeded() > 0) {
                     sendInventoryFullMessages(player, result.inventoryFailures());
                     sendInventoryFullSummary(player, result.totalAdditionalSlotsNeeded());
+                    sendSkippedExcludedMaterialsMessage(player, result.skippedMaterials());
                     return;
                 }
 
                 if (result.blockedByCraftingRequirement()) {
                     player.sendMessage(buildCraftingRequirementFailureMessage(craftingState));
+                    sendSkippedExcludedMaterialsMessage(player, result.skippedMaterials());
                     return;
                 }
 
@@ -235,6 +246,8 @@ public final class CondenseCommand implements TabExecutor, Listener {
                     );
                     player.sendMessage(message);
                 }
+
+                sendSkippedExcludedMaterialsMessage(player, result.skippedMaterials());
                 return;
             }
 
@@ -259,6 +272,8 @@ public final class CondenseCommand implements TabExecutor, Listener {
                 sendInventoryFullMessages(player, result.inventoryFailures());
                 sendInventoryFullSummary(player, result.totalAdditionalSlotsNeeded());
             }
+
+            sendSkippedExcludedMaterialsMessage(player, result.skippedMaterials());
         } finally {
             plugin.clearAllCondenseInputsExcludedNextRun(playerId);
         }
@@ -439,7 +454,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
         ConfigurationSection condenseSection = plugin.getConfig().getConfigurationSection("condense");
         if (condenseSection == null) {
             plugin.getLogger().warning("Missing 'condense' section in config.yml");
-            return new CondenseResult(0, 0, false, false, false, 0, Collections.emptyMap());
+            return new CondenseResult(0, 0, false, false, false, 0, Collections.emptyMap(), Collections.emptyList());
         }
 
         int totalProduced = 0;
@@ -468,6 +483,11 @@ public final class CondenseCommand implements TabExecutor, Listener {
                 condenseSection,
                 craftingState
         );
+        List<SkippedMaterial> skippedMaterials = collectSkippedExcludedMaterialsForRun(
+                player.getUniqueId(),
+                inventory,
+                condenseSection
+        );
 
         return new CondenseResult(
                 totalProduced,
@@ -476,7 +496,8 @@ public final class CondenseCommand implements TabExecutor, Listener {
                 blockedByCraftingRequirement,
                 usedSmallRecipeBypass,
                 finalFailureSummary.totalAdditionalSlotsNeeded(),
-                finalFailureSummary.failures()
+                finalFailureSummary.failures(),
+                skippedMaterials
         );
     }
 
@@ -682,6 +703,43 @@ public final class CondenseCommand implements TabExecutor, Listener {
         return new FailureSummary(totalAdditionalSlotsNeeded, failures);
     }
 
+    private List<SkippedMaterial> collectSkippedExcludedMaterialsForRun(
+            final UUID playerId,
+            final PlayerInventory inventory,
+            final ConfigurationSection condenseSection
+    ) {
+        ItemStack[] storage = inventory.getStorageContents();
+
+        Map<Material, Integer> itemCounts = new EnumMap<>(Material.class);
+        for (ItemStack item : storage) {
+            if (item == null || item.getType() == Material.AIR) {
+                continue;
+            }
+
+            itemCounts.merge(item.getType(), item.getAmount(), Integer::sum);
+        }
+
+        List<SkippedMaterial> skippedMaterials = new ArrayList<>();
+        for (String key : condenseSection.getKeys(false)) {
+            Material input = Material.matchMaterial(key);
+            if (input == null
+                    || plugin.isCondenseInputDisabled(input)
+                    || !plugin.isCondenseInputExcludedForRun(playerId, input)) {
+                continue;
+            }
+
+            int available = itemCounts.getOrDefault(input, 0);
+            if (available <= 0) {
+                continue;
+            }
+
+            skippedMaterials.add(new SkippedMaterial(available, input));
+        }
+
+        skippedMaterials.sort(Comparator.comparing(skippedMaterial -> getItemName(skippedMaterial.material())));
+        return skippedMaterials;
+    }
+
     private AttemptResult tryCondense(
             final Player player,
             final PlayerInventory inventory,
@@ -778,6 +836,31 @@ public final class CondenseCommand implements TabExecutor, Listener {
         ).replace("[slots]", String.valueOf(totalAdditionalSlotsNeeded));
 
         player.sendMessage(summary);
+    }
+
+    private void sendSkippedExcludedMaterialsMessage(
+            final Player player,
+            final List<SkippedMaterial> skippedMaterials
+    ) {
+        if (skippedMaterials.isEmpty()) {
+            return;
+        }
+
+        StringJoiner joiner = new StringJoiner(", ");
+        for (SkippedMaterial skippedMaterial : skippedMaterials) {
+            joiner.add(formatItemAmount(skippedMaterial.amount(), skippedMaterial.material()));
+        }
+
+        String message = getMessage(
+                "message.info.skipped_excluded_materials",
+                "Skipped excluded materials in your inventory: [items]."
+        ).replace("[items]", joiner.toString());
+
+        player.sendMessage(message);
+    }
+
+    private void sendExclusionChangesAppliedMessage(final Player player) {
+        player.sendMessage(Component.text("Exclusion changes applied.", NamedTextColor.GREEN));
     }
 
     private int calculateAdditionalSlotsNeeded(final Map<Integer, ItemStack> leftovers, final int maxStackSize) {
@@ -987,6 +1070,13 @@ public final class CondenseCommand implements TabExecutor, Listener {
             return;
         }
 
+        if (rawSlot == EXCLUDE_MENU_APPLY_SLOT) {
+            excludeMenuSessions.remove(player.getUniqueId());
+            sendExclusionChangesAppliedMessage(player);
+            Bukkit.getScheduler().runTask(plugin, () -> player.closeInventory());
+            return;
+        }
+
         if (rawSlot == EXCLUDE_MENU_PREVIOUS_SLOT && holder.page() > 0) {
             renderCurrentExcludeMenu(event.getView().getTopInventory(), player, holder, holder.page() - 1, totalPages);
             return;
@@ -1019,8 +1109,29 @@ public final class CondenseCommand implements TabExecutor, Listener {
         }
 
         inventory.setItem(
+                EXCLUDE_MENU_APPLY_SLOT,
+                createMenuControlItem(
+                        Material.LIME_DYE,
+                        "Apply Changes",
+                        NamedTextColor.GREEN,
+                        List.of(
+                                Component.text("Keep the current exclusions and close this menu.", NamedTextColor.GRAY)
+                                        .decoration(TextDecoration.ITALIC, false)
+                        )
+                )
+        );
+
+        inventory.setItem(
                 EXCLUDE_MENU_CANCEL_SLOT,
-                createMenuControlItem(Material.BARRIER, "Cancel Changes", NamedTextColor.RED)
+                createMenuControlItem(
+                        Material.BARRIER,
+                        "Cancel Changes",
+                        NamedTextColor.RED,
+                        List.of(
+                                Component.text("Undo all edits from this menu and close it.", NamedTextColor.GRAY)
+                                        .decoration(TextDecoration.ITALIC, false)
+                        )
+                )
         );
     }
 
@@ -1084,7 +1195,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
         ItemMeta meta = item.getItemMeta();
 
         meta.displayName(
-                Component.text("Toggle Condense Inputs", NamedTextColor.GOLD)
+                Component.text("Exclusion Help", NamedTextColor.GOLD)
                         .decoration(TextDecoration.ITALIC, false)
         );
         meta.lore(List.of(
@@ -1095,6 +1206,8 @@ public final class CondenseCommand implements TabExecutor, Listener {
                 Component.text("Glowing slots have an active exclusion.", NamedTextColor.GRAY)
                         .decoration(TextDecoration.ITALIC, false),
                 Component.text("Red X = persistent, yellow ! = next run only.", NamedTextColor.GRAY)
+                        .decoration(TextDecoration.ITALIC, false),
+                Component.text("Closing the menu or using green applies; red X cancels.", NamedTextColor.GRAY)
                         .decoration(TextDecoration.ITALIC, false),
                 Component.text("Use the red X button to cancel all edits from this menu.", NamedTextColor.RED)
                         .decoration(TextDecoration.ITALIC, false),
@@ -1111,10 +1224,22 @@ public final class CondenseCommand implements TabExecutor, Listener {
             final String name,
             final NamedTextColor color
     ) {
+        return createMenuControlItem(material, name, color, Collections.emptyList());
+    }
+
+    private ItemStack createMenuControlItem(
+            final Material material,
+            final String name,
+            final NamedTextColor color,
+            final List<Component> lore
+    ) {
         ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
 
         meta.displayName(Component.text(name, color).decoration(TextDecoration.ITALIC, false));
+        if (!lore.isEmpty()) {
+            meta.lore(lore);
+        }
         item.setItemMeta(meta);
         return item;
     }
@@ -1291,6 +1416,9 @@ public final class CondenseCommand implements TabExecutor, Listener {
     ) {
     }
 
+    private record SkippedMaterial(int amount, Material material) {
+    }
+
     private record FailureSummary(int totalAdditionalSlotsNeeded, Map<Material, InventoryFailure> failures) {
     }
 
@@ -1301,7 +1429,8 @@ public final class CondenseCommand implements TabExecutor, Listener {
             boolean blockedByCraftingRequirement,
             boolean usedSmallRecipeBypass,
             int totalAdditionalSlotsNeeded,
-            Map<Material, InventoryFailure> inventoryFailures
+            Map<Material, InventoryFailure> inventoryFailures,
+            List<SkippedMaterial> skippedMaterials
     ) {
     }
 

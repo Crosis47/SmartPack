@@ -81,7 +81,9 @@ Players can also open `/condense exclude` to choose configured input materials t
 - Left-click marks a material to be skipped on the next condense run only.
 - Right-click toggles a persistent per-player exclusion saved in `player-exclusions.db`.
 - Glowing slots indicate that an exclusion is currently active for that material.
+- Closing the menu normally, or using the green apply button, keeps the current changes and closes the menu.
 - The red `X` button in the bottom-right corner cancels all edits made during the current menu session.
+- After each condense cycle, the plugin reports any excluded configured inputs that were left skipped in the player's current storage inventory.
 
 When `activation.mode` is `CONDENSER_ITEM`, the same condense flow is triggered by right-clicking the Condenser item in the player's inventory. The Condenser is a custom crafting table item with a glint and a configurable recipe.
 
