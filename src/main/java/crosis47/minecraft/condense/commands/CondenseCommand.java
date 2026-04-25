@@ -843,9 +843,11 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
                 String message = getMessage(
                         "message.error.inventory_full",
-                        "Inventory full: [item1] -> [item2]"
+                        "Inventory full: [item1] → [item2]"
                 ).replace("[item1]", fullInput)
                  .replace("[item2]", result);
+
+                message = normalizeDisplayArrows(message);
 
                 player.sendMessage(message);
             }
@@ -877,9 +879,11 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
             String message = getMessage(
                     "message.error.inventory_full",
-                    "Inventory full: [item1] -> [item2]"
+                    "Inventory full: [item1] → [item2]"
             ).replace("[item1]", fullInput)
              .replace("[item2]", result);
+
+            message = normalizeDisplayArrows(message);
 
             player.sendMessage(message);
         }
@@ -908,9 +912,11 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
             String message = getMessage(
                     "message.condense.item",
-                    "[item1] -> [item2]"
+                    "[item1] → [item2]"
             ).replace("[item1]", item1)
              .replace("[item2]", item2);
+
+            message = normalizeDisplayArrows(message);
 
             player.sendMessage(message);
         }
@@ -1547,6 +1553,10 @@ public final class CondenseCommand implements TabExecutor, Listener {
         return message
                 .replace("\u00C3\u201A\u00C2\u00A7", "\u00A7")
                 .replace("\u00C2\u00A7", "\u00A7");
+    }
+
+    private String normalizeDisplayArrows(final String message) {
+        return message.replace(" -> ", " → ");
     }
 
     private String getItemName(final Material material) {
