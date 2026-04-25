@@ -7,6 +7,19 @@
 
 # IntelliJ
 out/
+.idea_modules/
+
+# VS Code
+.vscode/
+
+# Eclipse / Buildship
+.classpath
+.project
+.settings/
+.factorypath
+.apt_generated/
+.apt_generated_tests/
+.sts4-cache/
 
 # Compiled class file
 *.class
@@ -111,3 +124,15 @@ buildNumber.properties
 
 # Common working directory
 run/
+tmp/
+logs/
+
+# General caches and local scratch files
+.cache/
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+*.swp
+*.swo
