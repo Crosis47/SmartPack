@@ -1,6 +1,14 @@
-# Condense Reforged
+<p align="center">
+  <img src="condense.png" alt="Condense Reforged logo" width="220">
+</p>
 
-Condense Reforged is a Paper plugin that lets players condense configured materials directly from their inventory with `/condense`.
+<h1 align="center">Condense Reforged</h1>
+
+<p align="center">
+  A Paper plugin for fast, safe inventory condensing with <code>/condense</code>.
+</p>
+
+Condense Reforged lets players condense configured materials directly from their inventory with `/condense`.
 
 The plugin is designed for storage-style conversions such as nuggets to ingots or ingots to blocks, while adding guardrails that the original project did not have: configurable crafting-table requirements, reversible-recipe validation, inventory safety checks, and reloadable config.
 
