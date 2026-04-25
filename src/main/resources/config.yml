@@ -21,7 +21,7 @@
 # DO NOT CHANGE THIS VALUE MANUALLY.
 # The plugin uses this internally to determine if migrations
 # are required when updating to newer versions.
-config-version: 3
+config-version: 4
 
 
 # ------------------------------------------------------------
@@ -113,6 +113,19 @@ validation:
   # This is useful for strict setups where only truly reversible
   # storage-style compression should be allowed.
   disable_non_reversible_recipes: false
+
+
+# ------------------------------------------------------------
+# Inventory-full slot estimation
+# ------------------------------------------------------------
+inventory_full:
+  # If true, inventory-full slot estimates also include item entities that are
+  # already close enough to be picked up by the player.
+  include_nearby_pickups: true
+
+  # Radius used when scanning for nearby item entities to include in the
+  # inventory-full slot estimate. Set this to 0 to disable the nearby scan.
+  pickup_radius: 2.0
 
 
 # ------------------------------------------------------------

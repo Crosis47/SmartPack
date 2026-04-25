@@ -23,6 +23,7 @@ This project is a fork of the original MinecraftCondensePlugin by `rd156`.
 - Can allow small recipes to bypass the crafting-table requirement
 - Lets each player exclude configured materials through `/condense exclude`
 - Simulates inventory changes before applying them to prevent item loss
+- Can include nearby pickup items in inventory-full slot estimates
 - Automatically removes leftover Condenser items while running in `COMMAND` mode
 - Warns about non-reversible recipes and can disable them automatically
 - Reloads configuration in game with `/condense reload`
@@ -83,6 +84,8 @@ When a player runs `/condense`, the plugin:
 5. Applies successful conversions and repeats until no more configured conversions can run.
 
 If the output would not fit, the plugin leaves the inventory unchanged for that conversion and reports how many extra slots would have been needed.
+
+When `inventory_full.include_nearby_pickups` is enabled, that slot estimate also includes item entities already within the configured nearby pickup radius. The estimate condenses those nearby materials with the same configured recipes, exclusions, crafting-table rules, and multi-tier chaining used by the main condense flow before counting the final slots needed.
 
 Players can also open `/condense exclude` to choose configured input materials that should be ignored:
 
@@ -175,6 +178,7 @@ The main config sections are:
 - `config-version`: internal migration/version marker
 - `activation.*`: command vs Condenser-item activation, including whether `/condense` is allowed in item mode
 - `display.list`: enables one final chat line per original condensed input after the condense cycle completes
+- `inventory_full.*`: controls inventory-full slot estimation, including nearby pickup item scanning
 - `requirements.*`: crafting-table requirement behavior
 - `validation.*`: reversible recipe warnings and disabling
 - `message.*`: all user-facing plugin messages
@@ -202,6 +206,11 @@ The configurable messages use these placeholders:
 - `[slots]`: number of additional inventory slots needed
 - `[range]`: configured crafting-table search range
 - `[mode]`: invalid crafting-table mode from config
+
+Inventory-full settings:
+
+- `inventory_full.include_nearby_pickups`: includes already-nearby item entities in slot estimates when a condense result cannot fit, after simulating any configured condensation they can undergo
+- `inventory_full.pickup_radius`: radius used for the nearby item scan
 
 ## Notes For Server Owners
 

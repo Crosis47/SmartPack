@@ -38,7 +38,7 @@ import java.util.Map;
 
 public final class CondensePlugin extends JavaPlugin {
 
-    private static final int CURRENT_CONFIG_VERSION = 3;
+    private static final int CURRENT_CONFIG_VERSION = 4;
     private static final String DEFAULT_CONDENSER_NAME = "Condenser";
 
     private final Set<Material> disabledCondenseInputs = new HashSet<>();

@@ -16,6 +16,7 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabExecutor;
 import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -561,6 +562,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
         }
 
         FailureSummary finalFailureSummary = evaluateRemainingInventoryFailures(
+                player,
                 player.getUniqueId(),
                 inventory,
                 condenseSection,
@@ -704,6 +706,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
     }
 
     private FailureSummary evaluateRemainingInventoryFailures(
+            final Player player,
             final UUID playerId,
             final PlayerInventory inventory,
             final ConfigurationSection condenseSection,
@@ -712,7 +715,6 @@ public final class CondenseCommand implements TabExecutor, Listener {
         Map<Material, Integer> itemCounts = countContentsByMaterial(inventory.getStorageContents());
 
         Map<Material, InventoryFailure> failures = new EnumMap<>(Material.class);
-        int totalAdditionalSlotsNeeded = 0;
 
         for (String key : condenseSection.getKeys(false)) {
             ConfigurationSection rule = condenseSection.getConfigurationSection(key);
@@ -770,9 +772,18 @@ public final class CondenseCommand implements TabExecutor, Listener {
                 );
 
                 failures.put(input, failure);
-                totalAdditionalSlotsNeeded += attempt.additionalSlotsNeeded();
             }
         }
+
+        int totalAdditionalSlotsNeeded = failures.isEmpty()
+                ? 0
+                : estimateAdditionalSlotsNeededForCondensedState(
+                        player,
+                        playerId,
+                        cloneContents(inventory.getStorageContents()),
+                        condenseSection,
+                        craftingState
+                );
 
         return new FailureSummary(totalAdditionalSlotsNeeded, failures);
     }
@@ -835,7 +846,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
         Map<Integer, ItemStack> leftovers = addToContents(simulated, new ItemStack(output, toProduce));
         if (!leftovers.isEmpty()) {
-            int additionalSlotsNeeded = calculateAdditionalSlotsNeeded(leftovers, output.getMaxStackSize());
+            int additionalSlotsNeeded = calculateAdditionalSlotsNeeded(leftovers);
 
             if (sendInventoryFullMessages && player != null && plugin.getConfig().getBoolean("display.list")) {
                 String fullInput = formatItemAmount(availableInput, input);
@@ -1010,16 +1021,45 @@ public final class CondenseCommand implements TabExecutor, Listener {
         plugin.saveCondenseInputExcludedPersistentAsync(player.getUniqueId());
     }
 
-    private int calculateAdditionalSlotsNeeded(final Map<Integer, ItemStack> leftovers, final int maxStackSize) {
-        int totalRemainingItems = 0;
+    private int calculateAdditionalSlotsNeeded(final Map<Integer, ItemStack> leftovers) {
+        int additionalSlotsNeeded = 0;
 
         for (ItemStack leftover : leftovers.values()) {
-            if (leftover != null) {
-                totalRemainingItems += leftover.getAmount();
+            if (leftover == null || leftover.getType() == Material.AIR || leftover.getAmount() <= 0) {
+                continue;
             }
+
+            int maxStackSize = Math.max(1, leftover.getMaxStackSize());
+            additionalSlotsNeeded += (int) Math.ceil((double) leftover.getAmount() / maxStackSize);
         }
 
-        return (int) Math.ceil((double) totalRemainingItems / maxStackSize);
+        return additionalSlotsNeeded;
+    }
+
+    private int estimateAdditionalSlotsNeededForCondensedState(
+            final Player player,
+            final UUID playerId,
+            final ItemStack[] simulatedContents,
+            final ConfigurationSection condenseSection,
+            final CraftingRequirementState craftingState
+    ) {
+        if (simulatedContents.length == 0) {
+            return 0;
+        }
+
+        Map<Material, Long> materialCounts = countContentsByMaterialLong(simulatedContents);
+        mergeNearbyPickupMaterialCounts(player, materialCounts);
+        simulateCondensedMaterialCounts(playerId, materialCounts, condenseSection, craftingState);
+
+        long totalSlotsNeeded = calculateTotalSlotsNeeded(materialCounts);
+        long additionalSlotsNeeded = totalSlotsNeeded - simulatedContents.length;
+        if (additionalSlotsNeeded <= 0) {
+            return 0;
+        }
+
+        return additionalSlotsNeeded >= Integer.MAX_VALUE
+                ? Integer.MAX_VALUE
+                : (int) additionalSlotsNeeded;
     }
 
     private Map<Material, Integer> countContentsByMaterial(final ItemStack[] storage) {
@@ -1032,6 +1072,163 @@ public final class CondenseCommand implements TabExecutor, Listener {
             itemCounts.merge(item.getType(), item.getAmount(), Integer::sum);
         }
         return itemCounts;
+    }
+
+    private Map<Material, Long> countContentsByMaterialLong(final ItemStack[] storage) {
+        Map<Material, Long> itemCounts = new EnumMap<>(Material.class);
+        for (ItemStack item : storage) {
+            if (item == null || item.getType() == Material.AIR || item.getAmount() <= 0) {
+                continue;
+            }
+
+            itemCounts.merge(item.getType(), (long) item.getAmount(), Long::sum);
+        }
+        return itemCounts;
+    }
+
+    private void mergeNearbyPickupMaterialCounts(
+            final Player player,
+            final Map<Material, Long> materialCounts
+    ) {
+        if (player == null || materialCounts == null) {
+            return;
+        }
+
+        if (!plugin.getConfig().getBoolean("inventory_full.include_nearby_pickups", true)) {
+            return;
+        }
+
+        double pickupRadius = Math.max(0.0D, plugin.getConfig().getDouble("inventory_full.pickup_radius", 2.0D));
+        if (pickupRadius <= 0.0D) {
+            return;
+        }
+
+        Location playerLocation = player.getLocation();
+        double maxDistanceSquared = pickupRadius * pickupRadius;
+
+        for (org.bukkit.entity.Entity entity : player.getNearbyEntities(pickupRadius, pickupRadius, pickupRadius)) {
+            if (!(entity instanceof Item itemEntity)) {
+                continue;
+            }
+
+            if (!itemEntity.isValid() || itemEntity.isDead() || itemEntity.getPickupDelay() > 0) {
+                continue;
+            }
+
+            if (itemEntity.getLocation().distanceSquared(playerLocation) > maxDistanceSquared) {
+                continue;
+            }
+
+            ItemStack nearbyStack = itemEntity.getItemStack();
+            if (nearbyStack == null || nearbyStack.getType() == Material.AIR || nearbyStack.getAmount() <= 0) {
+                continue;
+            }
+
+            materialCounts.merge(nearbyStack.getType(), (long) nearbyStack.getAmount(), Long::sum);
+        }
+    }
+
+    private void simulateCondensedMaterialCounts(
+            final UUID playerId,
+            final Map<Material, Long> materialCounts,
+            final ConfigurationSection condenseSection,
+            final CraftingRequirementState craftingState
+    ) {
+        if (materialCounts.isEmpty()) {
+            return;
+        }
+
+        List<CondenseRule> rules = getSimulationCondenseRules(playerId, condenseSection, craftingState);
+        if (rules.isEmpty()) {
+            return;
+        }
+
+        int maxPasses = Math.max(1, rules.size() * rules.size());
+        for (int pass = 0; pass < maxPasses; pass++) {
+            boolean changed = false;
+
+            for (CondenseRule rule : rules) {
+                long available = materialCounts.getOrDefault(rule.input(), 0L);
+                long crafts = available / rule.ratioIn();
+                if (crafts <= 0) {
+                    continue;
+                }
+
+                long consumed = crafts * rule.ratioIn();
+                long produced = crafts * rule.ratioOut();
+
+                long remainingInput = available - consumed;
+                if (remainingInput > 0) {
+                    materialCounts.put(rule.input(), remainingInput);
+                } else {
+                    materialCounts.remove(rule.input());
+                }
+
+                materialCounts.merge(rule.output(), produced, Long::sum);
+                changed = true;
+            }
+
+            if (!changed) {
+                return;
+            }
+        }
+    }
+
+    private List<CondenseRule> getSimulationCondenseRules(
+            final UUID playerId,
+            final ConfigurationSection condenseSection,
+            final CraftingRequirementState craftingState
+    ) {
+        List<CondenseRule> rules = new ArrayList<>();
+
+        for (String key : condenseSection.getKeys(false)) {
+            ConfigurationSection ruleSection = condenseSection.getConfigurationSection(key);
+            if (ruleSection == null) {
+                continue;
+            }
+
+            Material input = Material.matchMaterial(key);
+            if (input == null
+                    || plugin.isCondenseInputDisabled(input)
+                    || plugin.isCondenseInputExcludedForRun(playerId, input)) {
+                continue;
+            }
+
+            String outputName = ruleSection.getString("output");
+            Material output = outputName == null ? null : Material.matchMaterial(outputName);
+            int ratioIn = ruleSection.getInt("ratio_in");
+            int ratioOut = ruleSection.getInt("ratio_out");
+
+            if (output == null || ratioIn <= 0 || ratioOut <= 0) {
+                continue;
+            }
+
+            if (!isCraftingRequirementSatisfiedForRecipe(craftingState, ratioIn)) {
+                continue;
+            }
+
+            rules.add(new CondenseRule(input, output, ratioIn, ratioOut));
+        }
+
+        rules.sort(Comparator.comparingInt(rule -> getCondenseDepth(rule.input())));
+        return rules;
+    }
+
+    private long calculateTotalSlotsNeeded(final Map<Material, Long> materialCounts) {
+        long totalSlotsNeeded = 0;
+
+        for (Map.Entry<Material, Long> entry : materialCounts.entrySet()) {
+            Material material = entry.getKey();
+            long amount = entry.getValue();
+            if (material == null || amount <= 0) {
+                continue;
+            }
+
+            int maxStackSize = Math.max(1, material.getMaxStackSize());
+            totalSlotsNeeded += (amount + maxStackSize - 1L) / maxStackSize;
+        }
+
+        return totalSlotsNeeded;
     }
 
     private Set<Material> collectTrackableInputMaterials(
@@ -1733,6 +1930,9 @@ public final class CondenseCommand implements TabExecutor, Listener {
     }
 
     private record OutputAllocation(Material originMaterial, long remainder, int consumedInput) {
+    }
+
+    private record CondenseRule(Material input, Material output, int ratioIn, int ratioOut) {
     }
 
     private record CraftingRequirementState(
