@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+---
+
+## [1.3.4] - 2026-04-25
+
 ### Added
 - Added configurable nearby pickup scanning for inventory-full summaries so extra slot estimates can include item entities already within pickup range.
 
