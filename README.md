@@ -148,26 +148,28 @@ This is useful if your server has datapacks or custom recipes and you only want 
 
 ## Default Recipe Set
 
-The bundled `config.yml` includes reversible vanilla-style compression recipes for:
+The bundled `config.yml` includes reversible vanilla-style compression recipes ordered by input material family:
 
-- `IRON_NUGGET -> IRON_INGOT`
-- `GOLD_NUGGET -> GOLD_INGOT`
-- `IRON_INGOT -> IRON_BLOCK`
-- `GOLD_INGOT -> GOLD_BLOCK`
-- `DIAMOND -> DIAMOND_BLOCK`
-- `EMERALD -> EMERALD_BLOCK`
-- `LAPIS_LAZULI -> LAPIS_BLOCK`
-- `REDSTONE -> REDSTONE_BLOCK`
+- `BONE_MEAL -> BONE_BLOCK`
 - `COAL -> COAL_BLOCK`
-- `NETHERITE_INGOT -> NETHERITE_BLOCK`
+- `COPPER_NUGGET -> COPPER_INGOT`
 - `COPPER_INGOT -> COPPER_BLOCK`
-- `RAW_IRON -> RAW_IRON_BLOCK`
-- `RAW_GOLD -> RAW_GOLD_BLOCK`
+- `DIAMOND -> DIAMOND_BLOCK`
+- `DRIED_KELP -> DRIED_KELP_BLOCK`
+- `EMERALD -> EMERALD_BLOCK`
+- `GOLD_NUGGET -> GOLD_INGOT`
+- `GOLD_INGOT -> GOLD_BLOCK`
+- `IRON_NUGGET -> IRON_INGOT`
+- `IRON_INGOT -> IRON_BLOCK`
+- `LAPIS_LAZULI -> LAPIS_BLOCK`
+- `NETHERITE_INGOT -> NETHERITE_BLOCK`
 - `RAW_COPPER -> RAW_COPPER_BLOCK`
+- `RAW_GOLD -> RAW_GOLD_BLOCK`
+- `RAW_IRON -> RAW_IRON_BLOCK`
+- `REDSTONE -> REDSTONE_BLOCK`
+- `RESIN_CLUMP -> RESIN_BLOCK`
 - `SLIME_BALL -> SLIME_BLOCK`
 - `WHEAT -> HAY_BLOCK`
-- `BONE_MEAL -> BONE_BLOCK`
-- `DRIED_KELP -> DRIED_KELP_BLOCK`
 
 You can add or remove entries under the `condense:` section to customize the behavior.
 

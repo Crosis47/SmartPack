@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.3.5] - 2026-04-26
+
+### Added
+- Added missing vanilla reversible condensables for copper nuggets and resin clumps to the default config.
+
+### Changed
+- Streamlined and reordered the default condense recipes by input material family while keeping tiered chains in pass-friendly order.
+
+---
+
 ## [1.3.4] - 2026-04-25
 
 ### Added

@@ -200,56 +200,13 @@ message:
 # Condense recipes
 # ------------------------------------------------------------
 #
-# Format:
-#
-#   INPUT_MATERIAL:
-#     output: OUTPUT_MATERIAL
-#     ratio_in: NUMBER_REQUIRED
-#     ratio_out: NUMBER_CREATED
-#
-# Notes:
-# - Material names must match Bukkit/Paper Material enum names
-# - Only reversible vanilla compression recipes are included
-# - These can be safely expanded if desired
+# Ordered alphabetically by input material family.
+# Tiered chains keep lower-tier inputs first so nuggets -> ingots -> blocks
+# can continue in the same pass.
 #
 condense:
-  IRON_NUGGET:
-    output: IRON_INGOT
-    ratio_in: 9
-    ratio_out: 1
-
-  GOLD_NUGGET:
-    output: GOLD_INGOT
-    ratio_in: 9
-    ratio_out: 1
-
-  IRON_INGOT:
-    output: IRON_BLOCK
-    ratio_in: 9
-    ratio_out: 1
-
-  GOLD_INGOT:
-    output: GOLD_BLOCK
-    ratio_in: 9
-    ratio_out: 1
-
-  DIAMOND:
-    output: DIAMOND_BLOCK
-    ratio_in: 9
-    ratio_out: 1
-
-  EMERALD:
-    output: EMERALD_BLOCK
-    ratio_in: 9
-    ratio_out: 1
-
-  LAPIS_LAZULI:
-    output: LAPIS_BLOCK
-    ratio_in: 9
-    ratio_out: 1
-
-  REDSTONE:
-    output: REDSTONE_BLOCK
+  BONE_MEAL:
+    output: BONE_BLOCK
     ratio_in: 9
     ratio_out: 1
 
@@ -258,8 +215,8 @@ condense:
     ratio_in: 9
     ratio_out: 1
 
-  NETHERITE_INGOT:
-    output: NETHERITE_BLOCK
+  COPPER_NUGGET:
+    output: COPPER_INGOT
     ratio_in: 9
     ratio_out: 1
 
@@ -268,8 +225,53 @@ condense:
     ratio_in: 9
     ratio_out: 1
 
-  RAW_IRON:
-    output: RAW_IRON_BLOCK
+  DIAMOND:
+    output: DIAMOND_BLOCK
+    ratio_in: 9
+    ratio_out: 1
+
+  DRIED_KELP:
+    output: DRIED_KELP_BLOCK
+    ratio_in: 9
+    ratio_out: 1
+
+  EMERALD:
+    output: EMERALD_BLOCK
+    ratio_in: 9
+    ratio_out: 1
+
+  GOLD_NUGGET:
+    output: GOLD_INGOT
+    ratio_in: 9
+    ratio_out: 1
+
+  GOLD_INGOT:
+    output: GOLD_BLOCK
+    ratio_in: 9
+    ratio_out: 1
+
+  IRON_NUGGET:
+    output: IRON_INGOT
+    ratio_in: 9
+    ratio_out: 1
+
+  IRON_INGOT:
+    output: IRON_BLOCK
+    ratio_in: 9
+    ratio_out: 1
+
+  LAPIS_LAZULI:
+    output: LAPIS_BLOCK
+    ratio_in: 9
+    ratio_out: 1
+
+  NETHERITE_INGOT:
+    output: NETHERITE_BLOCK
+    ratio_in: 9
+    ratio_out: 1
+
+  RAW_COPPER:
+    output: RAW_COPPER_BLOCK
     ratio_in: 9
     ratio_out: 1
 
@@ -278,8 +280,18 @@ condense:
     ratio_in: 9
     ratio_out: 1
 
-  RAW_COPPER:
-    output: RAW_COPPER_BLOCK
+  RAW_IRON:
+    output: RAW_IRON_BLOCK
+    ratio_in: 9
+    ratio_out: 1
+
+  REDSTONE:
+    output: REDSTONE_BLOCK
+    ratio_in: 9
+    ratio_out: 1
+
+  RESIN_CLUMP:
+    output: RESIN_BLOCK
     ratio_in: 9
     ratio_out: 1
 
@@ -290,15 +302,5 @@ condense:
 
   WHEAT:
     output: HAY_BLOCK
-    ratio_in: 9
-    ratio_out: 1
-
-  BONE_MEAL:
-    output: BONE_BLOCK
-    ratio_in: 9
-    ratio_out: 1
-
-  DRIED_KELP:
-    output: DRIED_KELP_BLOCK
     ratio_in: 9
     ratio_out: 1
