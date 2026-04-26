@@ -28,6 +28,66 @@ This project is a fork of the original MinecraftCondensePlugin by `rd156`.
 - Warns about non-reversible recipes and can disable them automatically
 - Reloads configuration in game with `/condense reload`
 
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/1.png" alt="Iron ingots condensed into iron blocks with chat summary" width="100%">
+      <br><strong>1. Fast inventory condensing</strong><br>
+      Large stacks compress directly from the player inventory, with chat summarizing the final result.
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/2.png" alt="Gold nuggets condensed through ingots into gold blocks" width="100%">
+      <br><strong>2. Multi-tier compression</strong><br>
+      Tiered recipes can continue in one run, such as nuggets turning into blocks with leftovers preserved.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/7.png" alt="Excluded iron nuggets skipped while gold nuggets condense" width="100%">
+      <br><strong>3. Skipped excluded materials</strong><br>
+      Excluded inputs stay in the inventory and the player gets a clear skipped-materials message.
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/3.png" alt="Condense Exclusions menu showing configured inputs" width="100%">
+      <br><strong>4. Exclusion menu</strong><br>
+      Players can review every configured input and choose what should be ignored by `/condense`.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/4-1.png" alt="Tooltip for a normal non-excluded wheat entry" width="100%">
+      <br><strong>4a. Normal input state</strong><br>
+      Regular entries show the available one-time and persistent exclusion actions.
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/4-2.png" alt="Tooltip for a temporary next-run exclusion" width="100%">
+      <br><strong>4b. Next-run skip</strong><br>
+      Yellow marked entries are skipped once, then automatically return to normal.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/4-3.png" alt="Tooltip for a persistent copper ingot exclusion" width="100%">
+      <br><strong>4c. Persistent exclusion</strong><br>
+      Red marked entries remain excluded across future condense runs until toggled back on.
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/5.png" alt="Exclusion Help tooltip explaining menu controls" width="100%">
+      <br><strong>5. Built-in menu help</strong><br>
+      The help item explains left-click, right-click, glowing slots, apply, and cancel behavior.
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2">
+      <img src="docs/screenshots/6.png" alt="Cancel Changes tooltip in the exclusion menu" width="100%">
+      <br><strong>6. Apply and cancel controls</strong><br>
+      The bottom-row controls let players keep their current edits or cancel everything from the menu session.
+    </td>
+  </tr>
+</table>
+
 ## Requirements
 
 - Java 21
