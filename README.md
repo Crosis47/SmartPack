@@ -100,6 +100,12 @@ When a player runs `/condense`, the plugin:
 
 If the output would not fit, the plugin leaves the inventory unchanged for that conversion and reports how many extra slots would have been needed.
 
+<p align="center">
+  <img src="docs/screenshots/10.png" alt="Inventory full warning after attempting to condense redstone" width="820">
+  <br><strong>Inventory-full safety</strong><br>
+  The plugin reports the blocked conversion and estimates how many extra slots would be needed.
+</p>
+
 When `inventory_full.include_nearby_pickups` is enabled, that slot estimate also includes item entities already within the configured nearby pickup radius. The estimate condenses those nearby materials with the same configured recipes, exclusions, crafting-table rules, and multi-tier chaining used by the main condense flow before counting the final slots needed.
 
 Players can also open `/condense exclude` to choose configured input materials that should be ignored:
@@ -177,6 +183,21 @@ When the plugin is running in `COMMAND` mode, it automatically removes leftover 
 - `false`: players must right-click the Condenser in inventory
 - `true`: players can either right-click the Condenser or use `/condense`, but only while carrying a Condenser
 
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/11.png" alt="Condenser crafting recipe in the crafting table interface" width="100%">
+      <br><strong>Crafted Condenser item</strong><br>
+      In item mode, the configured recipe creates a named Condenser item with a glint.
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/12.png" alt="Condenser item in inventory after condensing materials" width="100%">
+      <br><strong>Condenser activation</strong><br>
+      Right-clicking the Condenser from the player inventory runs the same condense flow.
+    </td>
+  </tr>
+</table>
+
 ## Crafting Table Requirement Modes
 
 `requirements.crafting_table_mode` supports four modes:
@@ -189,6 +210,21 @@ When the plugin is running in `COMMAND` mode, it automatically removes leftover 
 | `INVENTORY_OR_NEARBY` | Either condition is accepted |
 
 These settings only apply when `activation.mode` is `COMMAND`.
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/9.png" alt="Condensing near a crafting table succeeds" width="100%">
+      <br><strong>Nearby crafting table accepted</strong><br>
+      When nearby-table mode is enabled, standing within range lets larger recipes run.
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/8.png" alt="Crafting table required error message" width="100%">
+      <br><strong>Out-of-range protection</strong><br>
+      Players get a clear message when a recipe requires a crafting table and none is close enough.
+    </td>
+  </tr>
+</table>
 
 Related settings:
 
