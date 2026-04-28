@@ -9,7 +9,7 @@ commands:
   condense:
     description: Condense configured items into other items
     permission: condense.use
-    usage: "/condense [reload|exclude]"
+    usage: "/condense [reload|exclude|auto]"
 
 permissions:
   condense.use:
@@ -19,3 +19,7 @@ permissions:
   condense.reload:
     description: Allows reloading the plugin config
     default: op
+
+  condense.auto:
+    description: Allows automatic condensing when auto-condense is enabled
+    default: false

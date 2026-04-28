@@ -19,6 +19,7 @@ This project is a fork of the original MinecraftCondensePlugin by `rd156`.
 - Condenses items using recipes defined in `config.yml`
 - Works directly from the player's inventory
 - Supports both command activation and Condenser item activation
+- Supports optional pickup-triggered auto-condensing with actionbar feedback
 - Supports optional crafting-table requirements
 - Can allow small recipes to bypass the crafting-table requirement
 - Lets each player exclude configured materials through `/condense exclude`
@@ -58,11 +59,14 @@ The built jar will be created in `target/` as `condense-reforged-<version>.jar`.
 | --- | --- | --- |
 | `/condense` | Condense any configured materials the player is carrying | `condense.use` |
 | `/condense exclude` | Open a GUI to toggle which configured inputs should be skipped for that player | `condense.use` |
+| `/condense auto` | Toggle automatic condensing for the player | `condense.use` + `condense.auto` |
 | `/condense reload` | Reload the plugin configuration | `condense.reload` |
 
 `/condense` is player-only. `/condense reload` can be run by any sender with permission.
 
 If `activation.mode` is set to `CONDENSER_ITEM`, regular condensing is triggered by right-clicking the special Condenser item in the player's own inventory.
+
+In item mode, shift-right-clicking the Condenser item in the player's inventory enables that player's saved auto-condense preference when auto-condense is available for the server and mode.
 
 Admins can also enable `/condense` in item mode with `activation.condenser_item.allow_command_with_item: true`. When that toggle is on, the command only works if the player is carrying a Condenser.
 
@@ -71,6 +75,7 @@ Admins can also enable `/condense` in item mode with `activation.condenser_item.
 | Permission | Description | Default |
 | --- | --- | --- |
 | `condense.use` | Allows players to use `/condense` | `true` |
+| `condense.auto` | Allows automatic condensing when `auto_condense.enabled` is true | `false` |
 | `condense.reload` | Allows reloading the plugin config | `op` |
 
 ## How Condensing Works
@@ -161,6 +166,18 @@ Players can also open `/condense exclude` to choose configured input materials t
   </tr>
 </table>
 
+## Auto-Condense
+
+When `auto_condense.enabled` is true, players with both `condense.use` and `condense.auto` can automatically condense configured materials shortly after picking up item entities.
+
+Auto-condense uses the same condense flow as manual activation, including configured recipes, reversible-recipe disabling, inventory simulation, multi-tier chaining, inventory-full checks, and player exclusions. Persistent exclusions are always respected. Next-run exclusions also apply to the next automatic run because they apply to the next condense cycle.
+
+Players can use `/condense auto` to toggle automatic condensing for themselves. In Condenser item mode, they can also shift-right-click the Condenser item in their inventory to enable auto-condense. The preference is saved in `player-exclusions.db`; before a player changes it, `auto_condense.default_enabled` controls their default state and defaults to `false`. The server-wide `auto_condense.enabled` setting, current-mode auto-condense setting, and `condense.auto` permission are still required.
+
+Successful automatic runs send one final actionbar message using `message.auto_condense.actionbar`. If a conversion cannot safely fit output, the player receives an actionbar warning using `message.auto_condense.inventory_full_actionbar`, throttled by `auto_condense.feedback.inventory_full_cooldown_ticks`.
+
+In `COMMAND` mode, auto-condense follows the normal `requirements.*` crafting-table rules. In `CONDENSER_ITEM` mode, auto-condense is disabled by default; if enabled, it follows item-mode behavior by ignoring `requirements.*` and can require the player to carry a Condenser item.
+
 When `activation.mode` is `CONDENSER_ITEM`, the same condense flow is triggered by right-clicking the Condenser item in the player's inventory. The Condenser is a custom crafting table item with a glint and a configurable recipe.
 
 In Condenser item mode, the plugin ignores the `requirements.*` crafting-table checks entirely. The Condenser item itself is also not placeable as a block.
@@ -182,6 +199,11 @@ When the plugin is running in `COMMAND` mode, it automatically removes leftover 
 
 - `false`: players must right-click the Condenser in inventory
 - `true`: players can either right-click the Condenser or use `/condense`, but only while carrying a Condenser
+
+The Condenser item tooltip lists both item interactions:
+
+- Instant mode: right-click to condense carried materials now
+- Auto mode: shift-right-click to enable pickup condensing
 
 <table>
   <tr>
@@ -274,6 +296,7 @@ The main config sections are:
 
 - `config-version`: internal migration/version marker
 - `activation.*`: command vs Condenser-item activation, including whether `/condense` is allowed in item mode
+- `auto_condense.*`: optional automatic condensing triggers, cooldowns, mode policy, and actionbar feedback
 - `display.list`: enables one final chat line per original condensed input after the condense cycle completes
 - `inventory_full.*`: controls inventory-full slot estimation, including nearby pickup item scanning
 - `requirements.*`: crafting-table requirement behavior

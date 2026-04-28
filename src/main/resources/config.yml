@@ -1,49 +1,42 @@
-# ============================================================
-# Condense Plugin Configuration
-# ============================================================
+# ============================================================================
+#  CONDENSE REFORGED CONFIGURATION
+# ============================================================================
 #
-# This plugin allows players to condense configured materials
-# directly from their inventory.
+# Condense Reforged converts configured inventory materials into compact forms.
 #
 # Example:
 #   9 IRON_INGOT -> 1 IRON_BLOCK
 #
-# Only recipes listed under the "condense" section are allowed.
-# This default config includes reversible vanilla compression
-# recipes only, meaning the output can be crafted back into the
-# original ingredient.
+# Only recipes listed under the condense section are allowed. The bundled
+# defaults focus on reversible vanilla compression recipes, meaning the output
+# can be crafted back into the input.
 #
-# ============================================================
+# ============================================================================
 
-# ------------------------------------------------------------
-# Config version (used for automatic upgrades/migrations)
-# ------------------------------------------------------------
-# DO NOT CHANGE THIS VALUE MANUALLY.
-# The plugin uses this internally to determine if migrations
-# are required when updating to newer versions.
-config-version: 4
+# Internal config format marker. Do not edit by hand.
+config-version: 7
 
 
-# ------------------------------------------------------------
-# Activation settings
-# ------------------------------------------------------------
+# ============================================================================
+#  SECTION 01: ACTIVATION
+# ============================================================================
 activation:
-  # Controls how players trigger condensing. Changing this setting requires a server restart.
+  # How players manually trigger condensing.
+  #
   # Options:
-  #   COMMAND         - Players use /condense
-  #   CONDENSER_ITEM  - Players must use the special Condenser item
+  #   COMMAND        - Players use /condense
+  #   CONDENSER_ITEM - Players right-click a crafted Condenser item
+  #
+  # Changing this setting requires a server restart.
   mode: COMMAND
 
   condenser_item:
-    # The Condenser is a named crafting table with an enchantment glint.
-    # The recipe below is only registered when activation.mode is CONDENSER_ITEM.
-    # While this mode is active, crafting table requirements are ignored.
-    # The Condenser item itself also cannot be placed as a block.
-    #
     # If true, players may also use /condense while carrying a Condenser.
     # If false, condensing is locked to right-clicking the Condenser in inventory.
     allow_command_with_item: false
 
+    # Registered only while activation.mode is CONDENSER_ITEM.
+    # The result is a named crafting table item with a glint and custom data.
     recipe:
       shape:
         - "IRI"
@@ -55,85 +48,117 @@ activation:
         C: CRAFTING_TABLE
 
 
-# ------------------------------------------------------------
-# Display settings
-# ------------------------------------------------------------
-display:
-  # If true, the plugin will send a message for each successful
-  # conversion, such as:
-  #   "9 IRON_INGOT changed into 1 IRON_BLOCK."
-  #
-  # If false, players will only receive the final summary message.
-  list: true
-
-
-# ------------------------------------------------------------
-# Requirement settings
-# ------------------------------------------------------------
+# ============================================================================
+#  SECTION 02: REQUIREMENTS
+# ============================================================================
 requirements:
-  # These settings are only used when activation.mode is COMMAND.
-  # Controls how a crafting table is required for condensing.
+  # These settings only apply when activation.mode is COMMAND.
+  #
   # Options:
   #   DISABLED            - No crafting table required
   #   INVENTORY_ONLY      - Must have a crafting table in inventory
-  #   NEARBY_ONLY         - Must be within range of a crafting table
+  #   NEARBY_ONLY         - Must be within range of a placed crafting table
   #   INVENTORY_OR_NEARBY - Either condition is valid
   crafting_table_mode: NEARBY_ONLY
 
-  # Range (in blocks) used when NEARBY_ONLY or INVENTORY_OR_NEARBY is enabled
+  # Search radius for nearby crafting tables.
   crafting_table_range: 5
 
-  # If true, smaller recipes can bypass the crafting table requirement entirely.
-  # This is useful for custom recipes that fit within the player crafting grid.
+  # If true, small recipes can ignore the crafting-table requirement.
+  # This is useful for custom recipes that fit in the 2x2 player grid.
   bypass_crafting_table_for_small_recipes: true
 
-  # Maximum ratio_in that is allowed to bypass the crafting table requirement.
-  #
-  # Default is 4 because the standard 2x2 player crafting grid can handle up to 4 items.
-  # Recipes requiring 4 or fewer inputs do not require a crafting table.
-  #
-  # Examples:
-  #   ratio_in: 4  -> allowed without crafting table
-  #   ratio_in: 9  -> requires crafting table (if enabled)
+  # Maximum ratio_in that qualifies for the small-recipe bypass.
+  # The default is 4 because the player crafting grid has four slots.
   small_recipe_bypass_max_ratio_in: 4
 
-# ------------------------------------------------------------
-# Validation settings
-# ------------------------------------------------------------
+
+# ============================================================================
+#  SECTION 03: AUTO-CONDENSE
+# ============================================================================
+auto_condense:
+  # Master switch. Players still need condense.use and condense.auto.
+  enabled: false
+
+  # Default per-player preference before a player changes it with /condense auto.
+  # The master switch above must still be true.
+  default_enabled: false
+
+  # Minimum time between automatic condense attempts for the same player.
+  cooldown_ticks: 10
+
+  # Delay after a supported trigger before auto-condense runs. A short delay
+  # lets the server finish moving picked-up items into the player inventory.
+  delay_ticks: 2
+
+  modes:
+    # In COMMAND mode, auto-condense follows the normal requirements.* checks.
+    command: true
+
+    # In CONDENSER_ITEM mode, auto-condense follows item-mode behavior:
+    # requirements.* are ignored, and the optional Condenser item check below
+    # can be required. Disabled by default so the item remains intentional.
+    condenser_item: false
+
+  triggers:
+    # Run shortly after a player picks up an item entity.
+    pickup: true
+
+    # Run shortly after a player joins.
+    join: false
+
+  condenser_item:
+    # If item-mode auto-condense is enabled, require the player to carry a
+    # Condenser item before automatic condensing can run.
+    require_item: true
+
+  feedback:
+    # Send successful automatic condense summaries to the actionbar.
+    success_actionbar: true
+
+    # Send inventory-full automatic condense failures to the actionbar.
+    inventory_full_actionbar: true
+
+    # Separate throttle for inventory-full actionbar warnings.
+    inventory_full_cooldown_ticks: 100
+
+
+# ============================================================================
+#  SECTION 04: DISPLAY
+# ============================================================================
+display:
+  # If true, manual condense sends one line for each successful original input.
+  # If false, players only receive the final summary message.
+  list: true
+
+
+# ============================================================================
+#  SECTION 05: SAFETY AND VALIDATION
+# ============================================================================
 validation:
-  # If true, the plugin will log a startup warning when a
-  # configured condense recipe does not appear to be reversible
-  # using the server's currently loaded crafting recipes.
+  # Log a startup/reload warning when a configured recipe does not appear
+  # reversible using the server's currently loaded crafting recipes.
   warn_if_not_reversible: true
 
-  # If true, condense recipes that do not appear reversible in
-  # the currently loaded server recipes will be ignored by the
-  # plugin at runtime.
-  #
-  # This is useful for strict setups where only truly reversible
-  # storage-style compression should be allowed.
+  # If true, non-reversible recipes are ignored at runtime.
   disable_non_reversible_recipes: false
 
-
-# ------------------------------------------------------------
-# Inventory-full slot estimation
-# ------------------------------------------------------------
 inventory_full:
-  # If true, inventory-full slot estimates also include item entities that are
-  # already close enough to be picked up by the player.
+  # If true, inventory-full slot estimates include nearby item entities that
+  # are already close enough to be picked up.
   include_nearby_pickups: true
 
-  # Radius used when scanning for nearby item entities to include in the
-  # inventory-full slot estimate. Set this to 0 to disable the nearby scan.
+  # Radius used for nearby pickup scanning. Set to 0 to disable the scan.
   pickup_radius: 2.0
 
 
-# ------------------------------------------------------------
-# Messages
-# ------------------------------------------------------------
+# ============================================================================
+#  SECTION 06: MESSAGES
+# ============================================================================
 message:
   # Sent after /condense reload succeeds.
   reload: "§aCondense Reforged config reloaded."
+
   condense:
     # Sent once per original input material after the condense cycle completes
     # when display.list is enabled.
@@ -148,61 +173,85 @@ message:
     # Placeholders:
     #   [input] = total number of original input items condensed
     #   [output] = total number of final items after condensing
-    resume: "§a[input] Materials condensed to [output] block(s)."
     #   [items] = combined final condensed materials and leftovers
-    summary: "Â§aCondensed into [items]."
+    summary: "§aCondensed into [items]."
 
-  # Informational messages
-  info:
-    more_available_at_crafting_table: "§7More materials can be condensed at a crafting table."
-    # Sent after a condense cycle when excluded input materials remain skipped in the
-    # player's storage inventory.
+    # Legacy summary key kept for existing configs.
+    resume: "§a[input] Materials condensed to [output] block(s)."
+
+  auto_condense:
+    # Sent to the actionbar after automatic condensing succeeds.
     #
     # Placeholders:
+    #   [input] = total number of original input items condensed
+    #   [output] = total number of final items after condensing
+    #   [items] = combined final condensed materials and leftovers
+    actionbar: "§aCondensed into [items]."
+
+    # Sent to the actionbar when automatic condensing cannot safely fit output.
+    #
+    # Placeholder:
+    #   [slots] = number of additional inventory slots needed
+    inventory_full_actionbar: "§6Condense blocked: need [slots] more slot(s)."
+
+  info:
+    more_available_at_crafting_table: "§7More materials can be condensed at a crafting table."
+    auto_condense_enabled: "§aAuto-condense enabled."
+    auto_condense_disabled: "§eAuto-condense disabled."
+    auto_condense_unavailable: "§cAuto-condense is disabled on this server."
+
+    # Sent after a condense cycle when excluded configured inputs remain in the
+    # player's storage inventory.
+    #
+    # Placeholder:
     #   [items] = comma-separated list of skipped item amounts and materials
     skipped_excluded_materials: "§eSkipped excluded materials in your inventory: [items]."
+
+    # Sent in CONDENSER_ITEM mode when /condense is not enabled.
     use_condenser_item: "§eUse a Condenser from your inventory to condense materials."
 
   error:
-    # Sent when a player lacks permission for a Condense action
     no_permission: "§cYou do not have permission to use this command."
-
-    # Sent when item mode allows /condense, but the player is not carrying a Condenser
     condenser_item_required: "§cYou must have a Condenser in your inventory to use this command."
+    nothing_to_condense: "§eYou do not have any valid materials to condense."
 
-    # Sent when a recipe has invalid ratios
-    #
-    # Placeholders:
+    # Placeholder:
     #   [item1] = input material name
     ratio_zero: "§4ATTENTION: The conversion ratio of [item1] is invalid."
 
-    # Sent when inventory cannot fit output
-    #
     # Placeholders:
     #   [item1] = consumed input
     #   [item2] = output attempted
     inventory_full: "§4Inventory full: [item1] -> [item2]"
+
+    # Placeholder:
+    #   [slots] = number of additional inventory slots needed
     inventory_full_summary: "§6Inventory full summary: [slots] additional slot(s) needed."
 
-    # Sent when nothing could be condensed
-    nothing_to_condense: "§eYou do not have any valid materials to condense."
-
-    # Crafting table requirement messages
+    # Crafting table requirement messages.
     crafting_table_required_inventory: "§4You must have a crafting table in your inventory to use this command."
     crafting_table_required_nearby: "§4You must be within [range] blocks of a crafting table to use this command."
     crafting_table_required_inventory_or_nearby: "§4You need a crafting table to use this command. Put one in your inventory or stand within [range] blocks of one."
 
-    # Invalid config mode
+    # Placeholder:
+    #   [mode] = invalid crafting-table mode from config
     invalid_crafting_table_mode: "§4This plugin is misconfigured: invalid crafting table mode '[mode]'. Please contact an admin."
 
 
-# ------------------------------------------------------------
-# Condense recipes
-# ------------------------------------------------------------
+# ============================================================================
+#  SECTION 07: CONDENSE RECIPES
+# ============================================================================
 #
 # Ordered alphabetically by input material family.
 # Tiered chains keep lower-tier inputs first so nuggets -> ingots -> blocks
 # can continue in the same pass.
+#
+# Recipe format:
+#
+#   INPUT_MATERIAL:
+#     output: OUTPUT_MATERIAL
+#     ratio_in: 9
+#     ratio_out: 1
 #
 condense:
   BONE_MEAL:

@@ -3,6 +3,8 @@ package crosis47.minecraft.condense;
 import crosis47.minecraft.condense.commands.CondenseCommand;
 import crosis47.minecraft.condense.storage.PlayerExclusionStore;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
@@ -38,12 +40,13 @@ import java.util.Map;
 
 public final class CondensePlugin extends JavaPlugin {
 
-    private static final int CURRENT_CONFIG_VERSION = 4;
+    private static final int CURRENT_CONFIG_VERSION = 7;
     private static final String DEFAULT_CONDENSER_NAME = "Condenser";
 
     private final Set<Material> disabledCondenseInputs = new HashSet<>();
     private final Map<UUID, Set<Material>> excludedCondenseInputsByPlayer = new HashMap<>();
     private final Map<UUID, Set<Material>> nextRunExcludedCondenseInputsByPlayer = new HashMap<>();
+    private final Map<UUID, Boolean> autoCondenseEnabledByPlayer = new HashMap<>();
 
     private NamespacedKey condenserRecipeKey;
     private NamespacedKey condenserItemKey;
@@ -65,6 +68,7 @@ public final class CondensePlugin extends JavaPlugin {
             );
             playerExclusionStore.initialize();
             reloadPersistentExclusionsFromStore();
+            reloadPersistentAutoCondensePreferencesFromStore();
         } catch (Exception ex) {
             getLogger().severe("Failed to initialize SQLite player exclusion storage: " + ex.getMessage());
             ex.printStackTrace();
@@ -102,6 +106,7 @@ public final class CondensePlugin extends JavaPlugin {
         updateConfigIfNeeded();
         validateConfig();
         reloadPersistentExclusionsFromStore();
+        reloadPersistentAutoCondensePreferencesFromStore();
         refreshCondenserRecipe();
         cleanupCondenserItemsForOnlinePlayers();
     }
@@ -186,6 +191,37 @@ public final class CondensePlugin extends JavaPlugin {
                 playerId,
                 getCondenseInputExcludedPersistentSnapshot(playerId)
         );
+    }
+
+    public boolean isAutoCondenseEnabledForPlayer(final UUID playerId) {
+        if (playerId == null) {
+            return false;
+        }
+
+        return autoCondenseEnabledByPlayer.getOrDefault(
+                playerId,
+                getConfig().getBoolean("auto_condense.default_enabled", true)
+        );
+    }
+
+    public boolean toggleAutoCondenseEnabledForPlayer(final UUID playerId) {
+        return setAutoCondenseEnabledForPlayer(playerId, !isAutoCondenseEnabledForPlayer(playerId));
+    }
+
+    public boolean setAutoCondenseEnabledForPlayer(final UUID playerId, final boolean enabled) {
+        if (playerId == null) {
+            return false;
+        }
+
+        autoCondenseEnabledByPlayer.put(playerId, enabled);
+
+        if (playerExclusionStore == null) {
+            getLogger().warning("Persistent exclusion store is not available.");
+            return enabled;
+        }
+
+        playerExclusionStore.setAutoCondenseEnabledAsync(playerId, enabled);
+        return enabled;
     }
 
     public boolean toggleCondenseInputExcludedNextRun(final UUID playerId, final Material material) {
@@ -292,6 +328,22 @@ public final class CondensePlugin extends JavaPlugin {
         }
     }
 
+    private void reloadPersistentAutoCondensePreferencesFromStore() {
+        autoCondenseEnabledByPlayer.clear();
+
+        if (playerExclusionStore == null) {
+            return;
+        }
+
+        try {
+            playerExclusionStore.flushPendingWrites();
+            autoCondenseEnabledByPlayer.putAll(playerExclusionStore.loadAutoCondensePreferences());
+        } catch (Exception ex) {
+            getLogger().severe("Failed to load persistent auto-condense preferences: " + ex.getMessage());
+            ex.printStackTrace();
+        }
+    }
+
     private Set<Material> copyMaterialSet(final Set<Material> materials) {
         if (materials == null || materials.isEmpty()) {
             return EnumSet.noneOf(Material.class);
@@ -337,7 +389,16 @@ public final class CondensePlugin extends JavaPlugin {
         ItemStack item = new ItemStack(Material.CRAFTING_TABLE);
         ItemMeta meta = item.getItemMeta();
 
-        meta.displayName(Component.text(DEFAULT_CONDENSER_NAME));
+        meta.displayName(Component.text(DEFAULT_CONDENSER_NAME, NamedTextColor.AQUA)
+                .decoration(TextDecoration.ITALIC, false));
+        meta.lore(List.of(
+                Component.text("Instant mode: right-click to condense now.", NamedTextColor.GRAY)
+                        .decoration(TextDecoration.ITALIC, false),
+                Component.text("Auto mode: shift-right-click to enable.", NamedTextColor.GRAY)
+                        .decoration(TextDecoration.ITALIC, false),
+                Component.text("Auto mode condenses after item pickups.", NamedTextColor.DARK_GRAY)
+                        .decoration(TextDecoration.ITALIC, false)
+        ));
         meta.setEnchantmentGlintOverride(true);
         meta.getPersistentDataContainer().set(condenserItemKey, PersistentDataType.BYTE, (byte) 1);
 

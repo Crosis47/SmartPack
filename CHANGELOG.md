@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.4.0] - 2026-04-28
+
+### Added
+- Added configurable pickup-triggered auto-condensing guarded by the new `condense.auto` permission.
+- Added actionbar feedback for automatic condense success and inventory-full failures.
+- Added auto-condense mode controls for command mode and Condenser item mode.
+- Added `/condense auto` so players can toggle their persisted auto-condense preference.
+- Added Condenser item shift-right-click support for enabling auto-condense in item mode.
+- Added Condenser item tooltip guidance for instant condense and auto-condense interactions.
+
+### Changed
+- Reorganized the bundled `config.yml` into clearer sections with more concise comments.
+- Moved activation and requirements to the top of the bundled config and changed the default per-player auto-condense preference to disabled.
+
+---
+
 ## [1.3.5] - 2026-04-26
 
 ### Added

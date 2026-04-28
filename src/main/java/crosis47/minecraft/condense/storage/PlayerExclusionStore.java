@@ -106,6 +106,35 @@ public final class PlayerExclusionStore {
         return exclusionsByPlayer;
     }
 
+    public synchronized Map<UUID, Boolean> loadAutoCondensePreferences() throws SQLException {
+        Map<UUID, Boolean> preferencesByPlayer = new HashMap<>();
+
+        try (
+                Connection connection = openConnection();
+                PreparedStatement statement = connection.prepareStatement(
+                        "SELECT player_uuid, enabled FROM player_auto_condense_preferences ORDER BY player_uuid"
+                );
+                ResultSet resultSet = statement.executeQuery()
+        ) {
+            while (resultSet.next()) {
+                String rawPlayerId = resultSet.getString("player_uuid");
+
+                UUID playerId;
+                try {
+                    playerId = UUID.fromString(rawPlayerId);
+                } catch (IllegalArgumentException ex) {
+                    plugin.getLogger().warning("Skipping invalid player UUID in auto-condense preferences: "
+                            + rawPlayerId);
+                    continue;
+                }
+
+                preferencesByPlayer.put(playerId, resultSet.getInt("enabled") != 0);
+            }
+        }
+
+        return preferencesByPlayer;
+    }
+
     public synchronized void setPersistentExclusion(
             final UUID playerId,
             final Material material,
@@ -171,6 +200,38 @@ public final class PlayerExclusionStore {
         });
     }
 
+    public synchronized void setAutoCondenseEnabled(
+            final UUID playerId,
+            final boolean enabled
+    ) throws SQLException {
+        try (
+                Connection connection = openConnection();
+                PreparedStatement statement = connection.prepareStatement(
+                        "INSERT OR REPLACE INTO player_auto_condense_preferences "
+                                + "(player_uuid, enabled) VALUES (?, ?)"
+                )
+        ) {
+            statement.setString(1, playerId.toString());
+            statement.setInt(2, enabled ? 1 : 0);
+            statement.executeUpdate();
+        }
+    }
+
+    public void setAutoCondenseEnabledAsync(
+            final UUID playerId,
+            final boolean enabled
+    ) {
+        writeExecutor.execute(() -> {
+            try {
+                setAutoCondenseEnabled(playerId, enabled);
+            } catch (Exception ex) {
+                plugin.getLogger().severe("Failed to persist auto-condense preference asynchronously for player "
+                        + playerId + ": " + ex.getMessage());
+                ex.printStackTrace();
+            }
+        });
+    }
+
     public void flushPendingWrites() throws SQLException {
         try {
             Future<?> barrier = writeExecutor.submit(() -> {
@@ -227,6 +288,12 @@ public final class PlayerExclusionStore {
                     CREATE TABLE IF NOT EXISTS plugin_metadata (
                         metadata_key TEXT NOT NULL PRIMARY KEY,
                         metadata_value TEXT NOT NULL
+                    )
+                    """);
+            statement.execute("""
+                    CREATE TABLE IF NOT EXISTS player_auto_condense_preferences (
+                        player_uuid TEXT NOT NULL PRIMARY KEY,
+                        enabled INTEGER NOT NULL CHECK (enabled IN (0, 1))
                     )
                     """);
             statement.execute("""

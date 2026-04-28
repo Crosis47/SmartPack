@@ -5,6 +5,7 @@ import crosis47.minecraft.condense.requirements.CraftingTableMode;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import net.kyori.adventure.translation.GlobalTranslator;
 import org.bukkit.Bukkit;
@@ -21,10 +22,12 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
@@ -62,6 +65,9 @@ public final class CondenseCommand implements TabExecutor, Listener {
     private final CondensePlugin plugin;
     private final Map<UUID, ExcludeMenuSession> excludeMenuSessions = new HashMap<>();
     private final Set<UUID> condenseInProgress = new HashSet<>();
+    private final Set<UUID> pendingAutoCondense = new HashSet<>();
+    private final Map<UUID, Long> lastAutoCondenseTicks = new HashMap<>();
+    private final Map<UUID, Long> lastAutoInventoryFullMessageTicks = new HashMap<>();
 
     public CondenseCommand(final CondensePlugin plugin) {
         this.plugin = plugin;
@@ -101,6 +107,30 @@ public final class CondenseCommand implements TabExecutor, Listener {
                 openExcludeMenu(player, 0);
                 return true;
             }
+
+            if (args[0].equalsIgnoreCase("auto")) {
+                if (!(sender instanceof Player player)) {
+                    sender.sendMessage("This command can only be used by a player.");
+                    return true;
+                }
+
+                if (!player.hasPermission("condense.auto")) {
+                    player.sendMessage(getMessage(
+                            "message.error.no_permission",
+                            "You do not have permission to use this command."
+                    ));
+                    return true;
+                }
+
+                if (!isAutoCondenseAvailableInCurrentMode()) {
+                    sendAutoCondenseUnavailable(player);
+                    return true;
+                }
+
+                boolean enabled = plugin.toggleAutoCondenseEnabledForPlayer(player.getUniqueId());
+                sendAutoCondenseToggleMessage(player, enabled);
+                return true;
+            }
         }
 
         if (!(sender instanceof Player player)) {
@@ -126,7 +156,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
             }
         }
 
-        executeCondense(player);
+        executeCondense(player, CondenseRequest.manual());
         return true;
     }
 
@@ -159,8 +189,14 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
         event.setCancelled(true);
 
+        boolean enableAutoCondense = event.getClick().isShiftClick();
         Bukkit.getScheduler().runTask(plugin, () -> {
             if (!player.isOnline()) {
+                return;
+            }
+
+            if (enableAutoCondense) {
+                enableAutoCondenseFromCondenserItem(player);
                 return;
             }
 
@@ -174,6 +210,15 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
             executeCondense(player);
         });
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onEntityPickupItem(final EntityPickupItemEvent event) {
+        if (!(event.getEntity() instanceof Player player)) {
+            return;
+        }
+
+        queueAutoCondense(player, AutoCondenseTrigger.PICKUP);
     }
 
     @EventHandler(ignoreCancelled = true)
@@ -219,20 +264,43 @@ public final class CondenseCommand implements TabExecutor, Listener {
     @EventHandler
     public void onPlayerJoin(final PlayerJoinEvent event) {
         plugin.cleanupCondenserItems(event.getPlayer());
+        queueAutoCondense(event.getPlayer(), AutoCondenseTrigger.JOIN);
+    }
+
+    @EventHandler
+    public void onPlayerQuit(final PlayerQuitEvent event) {
+        UUID playerId = event.getPlayer().getUniqueId();
+        pendingAutoCondense.remove(playerId);
+        lastAutoCondenseTicks.remove(playerId);
+        lastAutoInventoryFullMessageTicks.remove(playerId);
     }
 
     public void executeCondense(final Player player) {
+        executeCondense(player, CondenseRequest.manual());
+    }
+
+    public void executeAutoCondense(final Player player) {
+        executeCondense(player, CondenseRequest.auto());
+    }
+
+    private void executeCondense(final Player player, final CondenseRequest request) {
         UUID playerId = player.getUniqueId();
 
         if (!condenseInProgress.add(playerId)) {
-            player.sendMessage(Component.text("Condense is already running.", NamedTextColor.YELLOW));
+            if (!request.automatic()) {
+                player.sendMessage(Component.text("Condense is already running.", NamedTextColor.YELLOW));
+            }
             return;
         }
 
-        continueCondenseExecution(playerId, new CondenseExecution());
+        continueCondenseExecution(playerId, new CondenseExecution(), request);
     }
 
-    private void continueCondenseExecution(final UUID playerId, final CondenseExecution execution) {
+    private void continueCondenseExecution(
+            final UUID playerId,
+            final CondenseExecution execution,
+            final CondenseRequest request
+    ) {
         Player player = Bukkit.getPlayer(playerId);
         if (player == null || !player.isOnline()) {
             cleanupCondenseExecution(playerId);
@@ -242,37 +310,43 @@ public final class CondenseCommand implements TabExecutor, Listener {
         try {
             CraftingRequirementState craftingState = getCraftingRequirementState(player);
             if (!craftingState.valid()) {
-                player.sendMessage(craftingState.failureMessage());
+                if (!request.automatic()) {
+                    player.sendMessage(craftingState.failureMessage());
+                }
                 cleanupCondenseExecution(playerId);
                 return;
             }
 
-            CondenseResult result = condense(player, craftingState, execution);
+            CondenseResult result = condense(player, craftingState, execution, request);
             execution.merge(result);
 
             if (result.totalProduced() > 0 || result.inventoryChangedDuringRun()) {
                 execution.resetSettleTicks();
-                scheduleNextCondenseExecution(playerId, execution);
+                scheduleNextCondenseExecution(playerId, execution, request);
                 return;
             }
 
             if (execution.shouldWaitForInventoryToSettle()) {
                 execution.consumeSettleTick();
-                scheduleNextCondenseExecution(playerId, execution);
+                scheduleNextCondenseExecution(playerId, execution, request);
                 return;
             }
 
-            finishCondenseExecution(player, craftingState, execution, result);
+            finishCondenseExecution(player, craftingState, execution, result, request);
         } catch (RuntimeException exception) {
             cleanupCondenseExecution(playerId);
             throw exception;
         }
     }
 
-    private void scheduleNextCondenseExecution(final UUID playerId, final CondenseExecution execution) {
+    private void scheduleNextCondenseExecution(
+            final UUID playerId,
+            final CondenseExecution execution,
+            final CondenseRequest request
+    ) {
         Bukkit.getScheduler().runTaskLater(
                 plugin,
-                () -> continueCondenseExecution(playerId, execution),
+                () -> continueCondenseExecution(playerId, execution, request),
                 CONDENSE_PASS_DELAY_TICKS
         );
     }
@@ -281,9 +355,15 @@ public final class CondenseCommand implements TabExecutor, Listener {
             final Player player,
             final CraftingRequirementState craftingState,
             final CondenseExecution execution,
-            final CondenseResult finalResult
+            final CondenseResult finalResult,
+            final CondenseRequest request
     ) {
         try {
+            if (request.automatic()) {
+                sendAutoCondenseFeedback(player, execution, finalResult);
+                return;
+            }
+
             if (!execution.hasSuccessfulConversions()) {
                 if (finalResult.totalAdditionalSlotsNeeded() > 0) {
                     sendInventoryFullMessages(player, finalResult.inventoryFailures());
@@ -345,6 +425,133 @@ public final class CondenseCommand implements TabExecutor, Listener {
         plugin.clearAllCondenseInputsExcludedNextRun(playerId);
     }
 
+    private void queueAutoCondense(final Player player, final AutoCondenseTrigger trigger) {
+        if (player == null || !isAutoCondenseTriggerEnabled(trigger) || !canAutoCondense(player)) {
+            return;
+        }
+
+        UUID playerId = player.getUniqueId();
+        if (!pendingAutoCondense.add(playerId)) {
+            return;
+        }
+
+        long delayTicks = Math.max(1L, plugin.getConfig().getLong("auto_condense.delay_ticks", 2L));
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            pendingAutoCondense.remove(playerId);
+
+            Player onlinePlayer = Bukkit.getPlayer(playerId);
+            if (onlinePlayer == null || !onlinePlayer.isOnline() || !canAutoCondense(onlinePlayer)) {
+                return;
+            }
+
+            if (isAutoCondenseCoolingDown(playerId)) {
+                return;
+            }
+
+            markAutoCondenseRun(playerId);
+            executeAutoCondense(onlinePlayer);
+        }, delayTicks);
+    }
+
+    private boolean isAutoCondenseTriggerEnabled(final AutoCondenseTrigger trigger) {
+        if (!plugin.getConfig().getBoolean("auto_condense.enabled", false)) {
+            return false;
+        }
+
+        return plugin.getConfig().getBoolean("auto_condense.triggers." + trigger.configKey(), trigger.defaultEnabled());
+    }
+
+    private boolean canAutoCondense(final Player player) {
+        if (!plugin.getConfig().getBoolean("auto_condense.enabled", false)) {
+            return false;
+        }
+
+        if (!plugin.isAutoCondenseEnabledForPlayer(player.getUniqueId())) {
+            return false;
+        }
+
+        if (!player.hasPermission("condense.use") || !player.hasPermission("condense.auto")) {
+            return false;
+        }
+
+        if (plugin.isCondenserItemModeEnabled()) {
+            if (!plugin.getConfig().getBoolean("auto_condense.modes.condenser_item", false)) {
+                return false;
+            }
+
+            return !plugin.getConfig().getBoolean("auto_condense.condenser_item.require_item", true)
+                    || plugin.hasCondenserItem(player.getInventory().getStorageContents());
+        }
+
+        return plugin.getConfig().getBoolean("auto_condense.modes.command", true);
+    }
+
+    private void enableAutoCondenseFromCondenserItem(final Player player) {
+        if (!player.hasPermission("condense.use") || !player.hasPermission("condense.auto")) {
+            player.sendMessage(getMessage(
+                    "message.error.no_permission",
+                    "You do not have permission to use this command."
+            ));
+            return;
+        }
+
+        if (!isAutoCondenseAvailableInCurrentMode()) {
+            sendAutoCondenseUnavailable(player);
+            return;
+        }
+
+        plugin.setAutoCondenseEnabledForPlayer(player.getUniqueId(), true);
+        player.sendMessage(getMessage(
+                "message.info.auto_condense_enabled",
+                "Auto-condense enabled."
+        ));
+    }
+
+    private boolean isAutoCondenseAvailableInCurrentMode() {
+        if (!plugin.getConfig().getBoolean("auto_condense.enabled", false)) {
+            return false;
+        }
+
+        if (plugin.isCondenserItemModeEnabled()) {
+            return plugin.getConfig().getBoolean("auto_condense.modes.condenser_item", false);
+        }
+
+        return plugin.getConfig().getBoolean("auto_condense.modes.command", true);
+    }
+
+    private void sendAutoCondenseUnavailable(final Player player) {
+        player.sendMessage(getMessage(
+                "message.info.auto_condense_unavailable",
+                "Auto-condense is disabled on this server."
+        ));
+    }
+
+    private void sendAutoCondenseToggleMessage(final Player player, final boolean enabled) {
+        String messagePath = enabled
+                ? "message.info.auto_condense_enabled"
+                : "message.info.auto_condense_disabled";
+        String fallback = enabled
+                ? "Auto-condense enabled."
+                : "Auto-condense disabled.";
+
+        player.sendMessage(getMessage(messagePath, fallback));
+    }
+
+    private boolean isAutoCondenseCoolingDown(final UUID playerId) {
+        long cooldownTicks = Math.max(0L, plugin.getConfig().getLong("auto_condense.cooldown_ticks", 10L));
+        if (cooldownTicks <= 0L) {
+            return false;
+        }
+
+        long currentTick = Bukkit.getCurrentTick();
+        Long lastRunTick = lastAutoCondenseTicks.get(playerId);
+        return lastRunTick != null && currentTick - lastRunTick < cooldownTicks;
+    }
+
+    private void markAutoCondenseRun(final UUID playerId) {
+        lastAutoCondenseTicks.put(playerId, (long) Bukkit.getCurrentTick());
+    }
+
     @Override
     public List<String> onTabComplete(
             @NotNull CommandSender sender,
@@ -358,6 +565,9 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
             if ("exclude".startsWith(input)) {
                 completions.add("exclude");
+            }
+            if (sender.hasPermission("condense.auto") && "auto".startsWith(input)) {
+                completions.add("auto");
             }
             if (sender.hasPermission("condense.reload") && "reload".startsWith(input)) {
                 completions.add("reload");
@@ -518,7 +728,8 @@ public final class CondenseCommand implements TabExecutor, Listener {
     private CondenseResult condense(
             final Player player,
             final CraftingRequirementState craftingState,
-            final CondenseExecution execution
+            final CondenseExecution execution,
+            final CondenseRequest request
     ) {
         PlayerInventory inventory = player.getInventory();
         ConfigurationSection condenseSection = plugin.getConfig().getConfigurationSection("condense");
@@ -548,7 +759,14 @@ public final class CondenseCommand implements TabExecutor, Listener {
         boolean inventoryChangedDuringRun = false;
 
         while (true) {
-            PassResult passResult = runCondensePass(player, inventory, condenseSection, craftingState, execution);
+            PassResult passResult = runCondensePass(
+                    player,
+                    inventory,
+                    condenseSection,
+                    craftingState,
+                    execution,
+                    request
+            );
 
             totalProduced += passResult.produced();
             hadValidAttempt |= passResult.hadValidAttempt();
@@ -591,7 +809,8 @@ public final class CondenseCommand implements TabExecutor, Listener {
             final PlayerInventory inventory,
             final ConfigurationSection condenseSection,
             final CraftingRequirementState craftingState,
-            final CondenseExecution execution
+            final CondenseExecution execution,
+            final CondenseRequest request
     ) {
         Map<Material, Integer> itemCounts = countContentsByMaterial(inventory.getStorageContents());
 
@@ -637,7 +856,9 @@ public final class CondenseCommand implements TabExecutor, Listener {
                         "Attention: the conversion ratio of [item1] is invalid."
                 ).replace("[item1]", getItemName(input));
 
-                player.sendMessage(message);
+                if (!request.automatic()) {
+                    player.sendMessage(message);
+                }
 
                 plugin.getLogger().warning("Invalid ratio for " + input + " -> " + output
                         + " (ratio_in=" + ratioIn + ", ratio_out=" + ratioOut + ")");
@@ -1003,6 +1224,70 @@ public final class CondenseCommand implements TabExecutor, Listener {
         ).replace("[items]", joiner.toString());
 
         player.sendMessage(message);
+    }
+
+    private void sendAutoCondenseFeedback(
+            final Player player,
+            final CondenseExecution execution,
+            final CondenseResult finalResult
+    ) {
+        boolean inventoryFull = finalResult.totalAdditionalSlotsNeeded() > 0;
+        if (inventoryFull && plugin.getConfig().getBoolean(
+                "auto_condense.feedback.inventory_full_actionbar",
+                true
+        )) {
+            if (shouldSendAutoInventoryFullMessage(player.getUniqueId())) {
+                String message = getMessage(
+                        "message.auto_condense.inventory_full_actionbar",
+                        "§6Condense blocked: need [slots] more slot(s)."
+                ).replace("[slots]", String.valueOf(finalResult.totalAdditionalSlotsNeeded()));
+
+                sendActionBar(player, message);
+            }
+            return;
+        }
+
+        if (!execution.hasSuccessfulConversions()
+                || !plugin.getConfig().getBoolean("auto_condense.feedback.success_actionbar", true)) {
+            return;
+        }
+
+        Map<Material, OriginSummary> originSummaries = execution.buildOriginSummaries();
+        int totalInputCount = countOriginSummaryInputs(originSummaries);
+        int totalOutputCount = countOriginSummaryOutputs(originSummaries);
+        String condensedItems = formatMaterialTotals(buildCombinedOriginTotals(originSummaries));
+
+        String message = getMessage(
+                "message.auto_condense.actionbar",
+                "§aCondensed into [items]."
+        ).replace("[input]", String.valueOf(totalInputCount))
+         .replace("[output]", String.valueOf(totalOutputCount))
+         .replace("[items]", condensedItems);
+
+        sendActionBar(player, message);
+    }
+
+    private boolean shouldSendAutoInventoryFullMessage(final UUID playerId) {
+        long cooldownTicks = Math.max(
+                0L,
+                plugin.getConfig().getLong("auto_condense.feedback.inventory_full_cooldown_ticks", 100L)
+        );
+        if (cooldownTicks <= 0L) {
+            return true;
+        }
+
+        long currentTick = Bukkit.getCurrentTick();
+        Long lastMessageTick = lastAutoInventoryFullMessageTicks.get(playerId);
+        if (lastMessageTick != null && currentTick - lastMessageTick < cooldownTicks) {
+            return false;
+        }
+
+        lastAutoInventoryFullMessageTicks.put(playerId, currentTick);
+        return true;
+    }
+
+    private void sendActionBar(final Player player, final String message) {
+        player.sendActionBar(LegacyComponentSerializer.legacySection().deserialize(normalizeDisplayArrows(message)));
     }
 
     private void sendExclusionChangesAppliedMessage(final Player player) {
@@ -1867,6 +2152,38 @@ public final class CondenseCommand implements TabExecutor, Listener {
         }
 
         return result;
+    }
+
+    private record CondenseRequest(boolean automatic) {
+
+        private static CondenseRequest manual() {
+            return new CondenseRequest(false);
+        }
+
+        private static CondenseRequest auto() {
+            return new CondenseRequest(true);
+        }
+    }
+
+    private enum AutoCondenseTrigger {
+        PICKUP("pickup", true),
+        JOIN("join", false);
+
+        private final String configKey;
+        private final boolean defaultEnabled;
+
+        AutoCondenseTrigger(final String configKey, final boolean defaultEnabled) {
+            this.configKey = configKey;
+            this.defaultEnabled = defaultEnabled;
+        }
+
+        private String configKey() {
+            return configKey;
+        }
+
+        private boolean defaultEnabled() {
+            return defaultEnabled;
+        }
     }
 
     private record AttemptResult(
