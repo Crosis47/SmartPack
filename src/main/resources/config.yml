@@ -14,7 +14,7 @@
 # ============================================================================
 
 # Internal config format marker. Do not edit by hand.
-config-version: 7
+config-version: 8
 
 
 # ============================================================================
@@ -106,6 +106,16 @@ auto_condense:
 
     # Run shortly after a player joins.
     join: false
+
+    # Run shortly after a crafting table is placed by a player.
+    # Only applies in COMMAND mode when nearby crafting tables satisfy requirements.
+    # Skipped when INVENTORY_OR_NEARBY is already satisfied by a carried table.
+    crafting_table_place: true
+
+    # Run when a player enters the configured crafting-table range.
+    # Only applies in COMMAND mode when nearby crafting tables satisfy requirements.
+    # Skipped when INVENTORY_OR_NEARBY is already satisfied by a carried table.
+    crafting_table_nearby: true
 
   condenser_item:
     # If item-mode auto-condense is enabled, require the player to carry a

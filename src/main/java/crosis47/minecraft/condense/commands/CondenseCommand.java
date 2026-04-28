@@ -27,6 +27,7 @@ import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
@@ -255,10 +256,38 @@ public final class CondenseCommand implements TabExecutor, Listener {
     @EventHandler(ignoreCancelled = true)
     public void onBlockPlace(final BlockPlaceEvent event) {
         if (!plugin.isCondenserItem(event.getItemInHand())) {
+            if (event.getBlockPlaced().getType() == Material.CRAFTING_TABLE
+                    && shouldCheckNearbyCraftingTableAutoTrigger(
+                            event.getPlayer(),
+                            AutoCondenseTrigger.CRAFTING_TABLE_PLACE
+                    )) {
+                queueAutoCondense(event.getPlayer(), AutoCondenseTrigger.CRAFTING_TABLE_PLACE);
+            }
             return;
         }
 
         event.setCancelled(true);
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onPlayerMove(final PlayerMoveEvent event) {
+        Location from = event.getFrom();
+        Location to = event.getTo();
+        if (!hasChangedBlock(from, to)) {
+            return;
+        }
+
+        Player player = event.getPlayer();
+        if (!shouldCheckNearbyCraftingTableAutoTrigger(player, AutoCondenseTrigger.CRAFTING_TABLE_NEARBY)) {
+            return;
+        }
+
+        int range = getCraftingTableRange();
+        if (isNearCraftingTable(from, range) || !isNearCraftingTable(to, range)) {
+            return;
+        }
+
+        queueAutoCondense(player, AutoCondenseTrigger.CRAFTING_TABLE_NEARBY);
     }
 
     @EventHandler
@@ -486,6 +515,30 @@ public final class CondenseCommand implements TabExecutor, Listener {
         return plugin.getConfig().getBoolean("auto_condense.modes.command", true);
     }
 
+    private boolean shouldCheckNearbyCraftingTableAutoTrigger(
+            final Player player,
+            final AutoCondenseTrigger trigger
+    ) {
+        if (plugin.isCondenserItemModeEnabled()) {
+            return false;
+        }
+
+        if (!isAutoCondenseTriggerEnabled(trigger) || !canAutoCondense(player)) {
+            return false;
+        }
+
+        CraftingTableMode mode = getConfiguredCraftingTableMode();
+        if (mode == CraftingTableMode.NEARBY_ONLY) {
+            return true;
+        }
+
+        if (mode == CraftingTableMode.INVENTORY_OR_NEARBY) {
+            return !hasCraftingTableInInventory(player.getInventory());
+        }
+
+        return false;
+    }
+
     private void enableAutoCondenseFromCondenserItem(final Player player) {
         if (!player.hasPermission("condense.use") || !player.hasPermission("condense.auto")) {
             player.sendMessage(getMessage(
@@ -594,7 +647,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
         }
 
         String rawMode = plugin.getConfig().getString("requirements.crafting_table_mode", "DISABLED");
-        int range = Math.max(0, plugin.getConfig().getInt("requirements.crafting_table_range", 5));
+        int range = getCraftingTableRange();
 
         CraftingTableMode mode = CraftingTableMode.fromString(rawMode);
         if (mode == null) {
@@ -617,8 +670,13 @@ public final class CondenseCommand implements TabExecutor, Listener {
             );
         }
 
-        boolean hasInventoryTable = hasCraftingTableInInventory(player.getInventory());
-        boolean hasNearbyTable = isNearCraftingTable(player, range);
+        boolean hasInventoryTable = usesInventoryCraftingTableRequirement(mode)
+                && hasCraftingTableInInventory(player.getInventory());
+        boolean hasNearbyTable = switch (mode) {
+            case NEARBY_ONLY -> isNearCraftingTable(player, range);
+            case INVENTORY_OR_NEARBY -> !hasInventoryTable && isNearCraftingTable(player, range);
+            case DISABLED, INVENTORY_ONLY -> false;
+        };
 
         boolean bypassForSmallRecipes = plugin.getConfig().getBoolean(
                 "requirements.bypass_crafting_table_for_small_recipes",
@@ -641,6 +699,19 @@ public final class CondenseCommand implements TabExecutor, Listener {
         );
     }
 
+    private CraftingTableMode getConfiguredCraftingTableMode() {
+        String rawMode = plugin.getConfig().getString("requirements.crafting_table_mode", "DISABLED");
+        return CraftingTableMode.fromString(rawMode);
+    }
+
+    private int getCraftingTableRange() {
+        return Math.max(0, plugin.getConfig().getInt("requirements.crafting_table_range", 5));
+    }
+
+    private boolean usesInventoryCraftingTableRequirement(final CraftingTableMode mode) {
+        return mode == CraftingTableMode.INVENTORY_ONLY || mode == CraftingTableMode.INVENTORY_OR_NEARBY;
+    }
+
     private boolean hasCraftingTableInInventory(final PlayerInventory inventory) {
         for (ItemStack item : inventory.getStorageContents()) {
             if (item == null || item.getType() == Material.AIR) {
@@ -655,8 +726,15 @@ public final class CondenseCommand implements TabExecutor, Listener {
     }
 
     private boolean isNearCraftingTable(final Player player, final int range) {
-        Location location = player.getLocation();
-        World world = player.getWorld();
+        return isNearCraftingTable(player.getLocation(), range);
+    }
+
+    private boolean isNearCraftingTable(final Location location, final int range) {
+        if (location == null || location.getWorld() == null) {
+            return false;
+        }
+
+        World world = location.getWorld();
 
         int baseX = location.getBlockX();
         int baseY = location.getBlockY();
@@ -685,6 +763,20 @@ public final class CondenseCommand implements TabExecutor, Listener {
         }
 
         return false;
+    }
+
+    private boolean hasChangedBlock(final Location from, final Location to) {
+        if (from == null || to == null) {
+            return true;
+        }
+
+        if (!Objects.equals(from.getWorld(), to.getWorld())) {
+            return true;
+        }
+
+        return from.getBlockX() != to.getBlockX()
+                || from.getBlockY() != to.getBlockY()
+                || from.getBlockZ() != to.getBlockZ();
     }
 
     private boolean isCraftingRequirementSatisfiedForRecipe(
@@ -2167,7 +2259,9 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
     private enum AutoCondenseTrigger {
         PICKUP("pickup", true),
-        JOIN("join", false);
+        JOIN("join", false),
+        CRAFTING_TABLE_PLACE("crafting_table_place", true),
+        CRAFTING_TABLE_NEARBY("crafting_table_nearby", true);
 
         private final String configKey;
         private final boolean defaultEnabled;

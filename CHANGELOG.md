@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 - Added configurable pickup-triggered auto-condensing guarded by the new `condense.auto` permission.
+- Added auto-condense triggers for placing crafting tables and entering nearby crafting-table range when command-mode requirements use nearby tables.
 - Added actionbar feedback for automatic condense success and inventory-full failures.
 - Added auto-condense mode controls for command mode and Condenser item mode.
 - Added `/condense auto` so players can toggle their persisted auto-condense preference.
@@ -22,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Added Condenser item tooltip guidance for instant condense and auto-condense interactions.
 
 ### Changed
+- Avoided nearby crafting-table scans when `INVENTORY_OR_NEARBY` is already satisfied by a crafting table in the player's inventory.
 - Reorganized the bundled `config.yml` into clearer sections with more concise comments.
 - Moved activation and requirements to the top of the bundled config and changed the default per-player auto-condense preference to disabled.
 

@@ -1,25 +1,39 @@
 <p align="center">
-  <img src="condense.png" alt="Condense Reforged logo" width="220">
+  <img src="docs/branding/smartpack-hero.png" alt="SmartPack branding banner" width="900">
 </p>
 
-<h1 align="center">Condense Reforged</h1>
+<h1 align="center">SmartPack</h1>
 
 <p align="center">
-  A Paper plugin for fast, safe inventory condensing with <code>/condense</code>.
+  <strong>Pack more. Carry less. Play smarter.</strong>
+  <br>
+  A Paper plugin for fast, safe Minecraft inventory compression with <code>/condense</code>.
 </p>
 
-Condense Reforged lets players condense configured materials directly from their inventory with `/condense`.
+SmartPack condenses configured materials directly from a player's inventory, turning loose resources into compact storage blocks without risky manual crafting loops.
 
-The plugin is designed for storage-style conversions such as nuggets to ingots or ingots to blocks, while adding guardrails that the original project did not have: configurable crafting-table requirements, reversible-recipe validation, inventory safety checks, and reloadable config.
+It is built for storage-style conversions such as nuggets to ingots, ingots to blocks, redstone to redstone blocks, and other server-configured recipes. SmartPack adds practical guardrails around those conversions: configurable crafting-table requirements, reversible-recipe validation, inventory safety checks, player exclusions, optional auto-packing, and reloadable config.
 
 This project is a fork of the original MinecraftCondensePlugin by `rd156`.
 
+<p align="center">
+  <img src="docs/branding/smartpack-features.png" alt="SmartPack feature summary" width="900">
+</p>
+
+## Why SmartPack
+
+- **Smart compression:** Compress materials and free up inventory space.
+- **Multiple ways to pack:** Use commands, a crafted item, or automation depending on server preference.
+- **Automate the process:** Let permitted players auto-pack items while they play.
+- **Safe and reliable:** Simulates inventory changes before applying them to prevent item loss.
+- **Play smarter:** Reduce clutter and make every slot count.
+
 ## What It Does
 
-- Condenses items using recipes defined in `config.yml`
+- Packs items using recipes defined in `config.yml`
 - Works directly from the player's inventory
 - Supports both command activation and Condenser item activation
-- Supports optional pickup-triggered auto-condensing with actionbar feedback
+- Supports optional trigger-based auto-packing with actionbar feedback
 - Supports optional crafting-table requirements
 - Can allow small recipes to bypass the crafting-table requirement
 - Lets each player exclude configured materials through `/condense exclude`
@@ -57,16 +71,16 @@ The built jar will be created in `target/` as `condense-reforged-<version>.jar`.
 
 | Command | Description | Permission |
 | --- | --- | --- |
-| `/condense` | Condense any configured materials the player is carrying | `condense.use` |
+| `/condense` | Pack any configured materials the player is carrying | `condense.use` |
 | `/condense exclude` | Open a GUI to toggle which configured inputs should be skipped for that player | `condense.use` |
-| `/condense auto` | Toggle automatic condensing for the player | `condense.use` + `condense.auto` |
+| `/condense auto` | Toggle automatic packing for the player | `condense.use` + `condense.auto` |
 | `/condense reload` | Reload the plugin configuration | `condense.reload` |
 
 `/condense` is player-only. `/condense reload` can be run by any sender with permission.
 
-If `activation.mode` is set to `CONDENSER_ITEM`, regular condensing is triggered by right-clicking the special Condenser item in the player's own inventory.
+If `activation.mode` is set to `CONDENSER_ITEM`, regular packing is triggered by right-clicking the special Condenser item in the player's own inventory.
 
-In item mode, shift-right-clicking the Condenser item in the player's inventory enables that player's saved auto-condense preference when auto-condense is available for the server and mode.
+In item mode, shift-right-clicking the Condenser item in the player's inventory enables that player's saved auto-pack preference when auto-pack is available for the server and mode.
 
 Admins can also enable `/condense` in item mode with `activation.condenser_item.allow_command_with_item: true`. When that toggle is on, the command only works if the player is carrying a Condenser.
 
@@ -75,12 +89,12 @@ Admins can also enable `/condense` in item mode with `activation.condenser_item.
 | Permission | Description | Default |
 | --- | --- | --- |
 | `condense.use` | Allows players to use `/condense` | `true` |
-| `condense.auto` | Allows automatic condensing when `auto_condense.enabled` is true | `false` |
+| `condense.auto` | Allows automatic packing when `auto_condense.enabled` is true | `false` |
 | `condense.reload` | Allows reloading the plugin config | `op` |
 
-## How Condensing Works
+## How Packing Works
 
-When a player runs `/condense`, the plugin:
+When a player runs `/condense`, SmartPack:
 
 1. Loads the configured recipe list from `config.yml`.
 2. Checks whether the player's crafting-table requirement is satisfied for each recipe.
@@ -92,7 +106,7 @@ When a player runs `/condense`, the plugin:
   <tr>
     <td width="50%">
       <img src="docs/screenshots/1.png" alt="Iron ingots condensed into iron blocks with chat summary" width="100%">
-      <br><strong>Fast inventory condensing</strong><br>
+      <br><strong>Fast inventory packing</strong><br>
       Large stacks compress directly from the player inventory, with chat summarizing the final result.
     </td>
     <td width="50%">
@@ -116,8 +130,8 @@ When `inventory_full.include_nearby_pickups` is enabled, that slot estimate also
 Players can also open `/condense exclude` to choose configured input materials that should be ignored:
 
 <p align="center">
-  <img src="docs/screenshots/3.png" alt="Condense Exclusions menu showing configured inputs" width="540">
-  <br><strong>Condense Exclusions menu</strong>
+  <img src="docs/screenshots/3.png" alt="SmartPack Exclusions menu showing configured inputs" width="540">
+  <br><strong>SmartPack Exclusions menu</strong>
 </p>
 
 - Left-click marks a material to be skipped on the next condense run only.
@@ -166,17 +180,19 @@ Players can also open `/condense exclude` to choose configured input materials t
   </tr>
 </table>
 
-## Auto-Condense
+## Auto-Pack
 
-When `auto_condense.enabled` is true, players with both `condense.use` and `condense.auto` can automatically condense configured materials shortly after picking up item entities.
+When `auto_condense.enabled` is true, players with both `condense.use` and `condense.auto` can automatically pack configured materials shortly after supported triggers. By default, this includes picking up item entities and, when command-mode crafting-table requirements accept nearby tables, placing a crafting table or entering the configured crafting-table range.
 
-Auto-condense uses the same condense flow as manual activation, including configured recipes, reversible-recipe disabling, inventory simulation, multi-tier chaining, inventory-full checks, and player exclusions. Persistent exclusions are always respected. Next-run exclusions also apply to the next automatic run because they apply to the next condense cycle.
+Auto-pack uses the same conversion flow as manual activation, including configured recipes, reversible-recipe disabling, inventory simulation, multi-tier chaining, inventory-full checks, and player exclusions. Persistent exclusions are always respected. Next-run exclusions also apply to the next automatic run because they apply to the next pack cycle.
 
-Players can use `/condense auto` to toggle automatic condensing for themselves. In Condenser item mode, they can also shift-right-click the Condenser item in their inventory to enable auto-condense. The preference is saved in `player-exclusions.db`; before a player changes it, `auto_condense.default_enabled` controls their default state and defaults to `false`. The server-wide `auto_condense.enabled` setting, current-mode auto-condense setting, and `condense.auto` permission are still required.
+Players can use `/condense auto` to toggle automatic packing for themselves. In Condenser item mode, they can also shift-right-click the Condenser item in their inventory to enable auto-pack. The preference is saved in `player-exclusions.db`; before a player changes it, `auto_condense.default_enabled` controls their default state and defaults to `false`. The server-wide `auto_condense.enabled` setting, current-mode auto-pack setting, and `condense.auto` permission are still required.
 
 Successful automatic runs send one final actionbar message using `message.auto_condense.actionbar`. If a conversion cannot safely fit output, the player receives an actionbar warning using `message.auto_condense.inventory_full_actionbar`, throttled by `auto_condense.feedback.inventory_full_cooldown_ticks`.
 
-In `COMMAND` mode, auto-condense follows the normal `requirements.*` crafting-table rules. In `CONDENSER_ITEM` mode, auto-condense is disabled by default; if enabled, it follows item-mode behavior by ignoring `requirements.*` and can require the player to carry a Condenser item.
+In `COMMAND` mode, auto-pack follows the normal `requirements.*` crafting-table rules. In `CONDENSER_ITEM` mode, auto-pack is disabled by default; if enabled, it follows item-mode behavior by ignoring `requirements.*` and can require the player to carry a Condenser item.
+
+The nearby crafting-table triggers use `requirements.crafting_table_range` and only run when `requirements.crafting_table_mode` is `NEARBY_ONLY` or `INVENTORY_OR_NEARBY`. When `INVENTORY_OR_NEARBY` is already satisfied by a crafting table in the player's inventory, the nearby trigger checks are skipped.
 
 When `activation.mode` is `CONDENSER_ITEM`, the same condense flow is triggered by right-clicking the Condenser item in the player's inventory. The Condenser is a custom crafting table item with a glint and a configurable recipe.
 
@@ -203,7 +219,7 @@ When the plugin is running in `COMMAND` mode, it automatically removes leftover 
 The Condenser item tooltip lists both item interactions:
 
 - Instant mode: right-click to condense carried materials now
-- Auto mode: shift-right-click to enable pickup condensing
+- Auto mode: shift-right-click to enable pickup packing
 
 <table>
   <tr>
@@ -213,7 +229,7 @@ The Condenser item tooltip lists both item interactions:
       In item mode, the configured recipe creates a named Condenser item with a glint.
     </td>
     <td width="50%">
-      <img src="docs/screenshots/12.png" alt="Condenser item in inventory after condensing materials" width="100%">
+      <img src="docs/screenshots/12.png" alt="Condenser item in inventory after packing materials" width="100%">
       <br><strong>Condenser activation</strong><br>
       Right-clicking the Condenser from the player inventory runs the same condense flow.
     </td>
@@ -236,7 +252,7 @@ These settings only apply when `activation.mode` is `COMMAND`.
 <table>
   <tr>
     <td width="50%">
-      <img src="docs/screenshots/9.png" alt="Condensing near a crafting table succeeds" width="100%">
+      <img src="docs/screenshots/9.png" alt="Packing near a crafting table succeeds" width="100%">
       <br><strong>Nearby crafting table accepted</strong><br>
       When nearby-table mode is enabled, standing within range lets larger recipes run.
     </td>
@@ -296,7 +312,7 @@ The main config sections are:
 
 - `config-version`: internal migration/version marker
 - `activation.*`: command vs Condenser-item activation, including whether `/condense` is allowed in item mode
-- `auto_condense.*`: optional automatic condensing triggers, cooldowns, mode policy, and actionbar feedback
+- `auto_condense.*`: optional automatic packing triggers, cooldowns, mode policy, and actionbar feedback
 - `display.list`: enables one final chat line per original condensed input after the condense cycle completes
 - `inventory_full.*`: controls inventory-full slot estimation, including nearby pickup item scanning
 - `requirements.*`: crafting-table requirement behavior
@@ -321,7 +337,7 @@ The configurable messages use these placeholders:
 - `[item1]`: original input amount and material for a completed condense line
 - `[item2]`: final condensed result for that original input, including leftovers
 - `[input]`: total original input count condensed in the final summary
-- `[output]`: total final item count after condensing in the final summary
+- `[output]`: total final item count after packing in the final summary
 - `[items]`: combined final condensed materials if the summary template uses a material list
 - `[slots]`: number of additional inventory slots needed
 - `[range]`: configured crafting-table search range
