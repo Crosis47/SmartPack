@@ -10,6 +10,10 @@
   A Paper plugin for fast, safe Minecraft inventory compression with <code>/pack</code>.
 </p>
 
+<p align="center">
+  <img src="docs/branding/smartpack-features.png" alt="SmartPack feature summary" width="900">
+</p>
+
 SmartPack packs configured inventory materials into compact storage forms, such as nuggets to ingots, ingots to blocks, redstone to redstone blocks, and other server-configured recipes. It is built for survival servers that want quick inventory cleanup with sensible safety checks.
 
 ## Highlights
