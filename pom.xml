@@ -4,12 +4,12 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>crosis47.minecraft</groupId>
-    <artifactId>condense-reforged</artifactId>
+    <artifactId>smartpack</artifactId>
     <version>1.4.0</version>
     <packaging>jar</packaging>
 
-    <name>Condense Reforged</name>
-    <description>Paper plugin with a command to condense items into other items.</description>
+    <name>SmartPack</name>
+    <description>Paper plugin for smart Minecraft inventory packing and compression.</description>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

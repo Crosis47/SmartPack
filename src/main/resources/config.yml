@@ -1,41 +1,41 @@
 # ============================================================================
-#  CONDENSE REFORGED CONFIGURATION
+#  SMARTPACK CONFIGURATION
 # ============================================================================
 #
-# Condense Reforged converts configured inventory materials into compact forms.
+# SmartPack converts configured inventory materials into compact forms.
 #
 # Example:
 #   9 IRON_INGOT -> 1 IRON_BLOCK
 #
-# Only recipes listed under the condense section are allowed. The bundled
+# Only recipes listed under the pack section are allowed. The bundled
 # defaults focus on reversible vanilla compression recipes, meaning the output
 # can be crafted back into the input.
 #
 # ============================================================================
 
 # Internal config format marker. Do not edit by hand.
-config-version: 8
+config-version: 10
 
 
 # ============================================================================
 #  SECTION 01: ACTIVATION
 # ============================================================================
 activation:
-  # How players manually trigger condensing.
+  # How players manually trigger packing.
   #
   # Options:
-  #   COMMAND        - Players use /condense
-  #   CONDENSER_ITEM - Players right-click a crafted Condenser item
+  #   COMMAND           - Players use /pack
+  #   SMART_PACKER_ITEM - Players right-click a crafted Smart Packer item
   #
   # Changing this setting requires a server restart.
   mode: COMMAND
 
-  condenser_item:
-    # If true, players may also use /condense while carrying a Condenser.
-    # If false, condensing is locked to right-clicking the Condenser in inventory.
+  smart_packer_item:
+    # If true, players may also use /pack while carrying a Smart Packer.
+    # If false, packing is locked to right-clicking the Smart Packer in inventory.
     allow_command_with_item: false
 
-    # Registered only while activation.mode is CONDENSER_ITEM.
+    # Registered only while activation.mode is SMART_PACKER_ITEM.
     # The result is a named crafting table item with a glint and custom data.
     recipe:
       shape:
@@ -74,31 +74,31 @@ requirements:
 
 
 # ============================================================================
-#  SECTION 03: AUTO-CONDENSE
+#  SECTION 03: AUTO-PACK
 # ============================================================================
-auto_condense:
-  # Master switch. Players still need condense.use and condense.auto.
+auto_pack:
+  # Master switch. Players still need smartpack.use and smartpack.auto.
   enabled: false
 
-  # Default per-player preference before a player changes it with /condense auto.
+  # Default per-player preference before a player changes it with /pack auto.
   # The master switch above must still be true.
   default_enabled: false
 
-  # Minimum time between automatic condense attempts for the same player.
+  # Minimum time between automatic pack attempts for the same player.
   cooldown_ticks: 10
 
-  # Delay after a supported trigger before auto-condense runs. A short delay
+  # Delay after a supported trigger before auto-pack runs. A short delay
   # lets the server finish moving picked-up items into the player inventory.
   delay_ticks: 2
 
   modes:
-    # In COMMAND mode, auto-condense follows the normal requirements.* checks.
+    # In COMMAND mode, auto-pack follows the normal requirements.* checks.
     command: true
 
-    # In CONDENSER_ITEM mode, auto-condense follows item-mode behavior:
-    # requirements.* are ignored, and the optional Condenser item check below
+    # In SMART_PACKER_ITEM mode, auto-pack follows item-mode behavior:
+    # requirements.* are ignored, and the optional Smart Packer item check below
     # can be required. Disabled by default so the item remains intentional.
-    condenser_item: false
+    smart_packer_item: false
 
   triggers:
     # Run shortly after a player picks up an item entity.
@@ -117,16 +117,16 @@ auto_condense:
     # Skipped when INVENTORY_OR_NEARBY is already satisfied by a carried table.
     crafting_table_nearby: true
 
-  condenser_item:
-    # If item-mode auto-condense is enabled, require the player to carry a
-    # Condenser item before automatic condensing can run.
+  smart_packer_item:
+    # If item-mode auto-pack is enabled, require the player to carry a
+    # Smart Packer item before automatic packing can run.
     require_item: true
 
   feedback:
-    # Send successful automatic condense summaries to the actionbar.
+    # Send successful automatic pack summaries to the actionbar.
     success_actionbar: true
 
-    # Send inventory-full automatic condense failures to the actionbar.
+    # Send inventory-full automatic pack failures to the actionbar.
     inventory_full_actionbar: true
 
     # Separate throttle for inventory-full actionbar warnings.
@@ -137,7 +137,7 @@ auto_condense:
 #  SECTION 04: DISPLAY
 # ============================================================================
 display:
-  # If true, manual condense sends one line for each successful original input.
+  # If true, manual packing sends one line for each successful original input.
   # If false, players only receive the final summary message.
   list: true
 
@@ -166,64 +166,64 @@ inventory_full:
 #  SECTION 06: MESSAGES
 # ============================================================================
 message:
-  # Sent after /condense reload succeeds.
-  reload: "§aCondense Reforged config reloaded."
+  # Sent after /pack reload succeeds.
+  reload: "§aSmartPack config reloaded."
 
-  condense:
-    # Sent once per original input material after the condense cycle completes
+  pack:
+    # Sent once per original input material after the pack cycle completes
     # when display.list is enabled.
     #
     # Placeholders:
     #   [item1] = original input amount and material
-    #   [item2] = final condensed result for that original input, plus leftovers
+    #   [item2] = final packed result for that original input, plus leftovers
     item: "§a[item1] -> [item2]."
 
     # Sent after all conversions complete.
     #
     # Placeholders:
-    #   [input] = total number of original input items condensed
-    #   [output] = total number of final items after condensing
-    #   [items] = combined final condensed materials and leftovers
-    summary: "§aCondensed into [items]."
+    #   [input] = total number of original input items packed
+    #   [output] = total number of final items after packing
+    #   [items] = combined final packed materials and leftovers
+    summary: "§aPacked into [items]."
 
     # Legacy summary key kept for existing configs.
-    resume: "§a[input] Materials condensed to [output] block(s)."
+    resume: "§a[input] materials packed to [output] block(s)."
 
-  auto_condense:
-    # Sent to the actionbar after automatic condensing succeeds.
+  auto_pack:
+    # Sent to the actionbar after automatic packing succeeds.
     #
     # Placeholders:
-    #   [input] = total number of original input items condensed
-    #   [output] = total number of final items after condensing
-    #   [items] = combined final condensed materials and leftovers
-    actionbar: "§aCondensed into [items]."
+    #   [input] = total number of original input items packed
+    #   [output] = total number of final items after packing
+    #   [items] = combined final packed materials and leftovers
+    actionbar: "§aPacked into [items]."
 
-    # Sent to the actionbar when automatic condensing cannot safely fit output.
+    # Sent to the actionbar when automatic packing cannot safely fit output.
     #
     # Placeholder:
     #   [slots] = number of additional inventory slots needed
-    inventory_full_actionbar: "§6Condense blocked: need [slots] more slot(s)."
+    inventory_full_actionbar: "§6Pack blocked: need [slots] more slot(s)."
 
   info:
-    more_available_at_crafting_table: "§7More materials can be condensed at a crafting table."
-    auto_condense_enabled: "§aAuto-condense enabled."
-    auto_condense_disabled: "§eAuto-condense disabled."
-    auto_condense_unavailable: "§cAuto-condense is disabled on this server."
+    more_available_at_crafting_table: "§7More materials can be packed at a crafting table."
+    auto_pack_enabled: "§aAuto-pack enabled."
+    auto_pack_disabled: "§eAuto-pack disabled."
+    auto_pack_unavailable: "§cAuto-pack is disabled on this server."
 
-    # Sent after a condense cycle when excluded configured inputs remain in the
+    # Sent after a pack cycle when excluded configured inputs remain in the
     # player's storage inventory.
     #
     # Placeholder:
     #   [items] = comma-separated list of skipped item amounts and materials
     skipped_excluded_materials: "§eSkipped excluded materials in your inventory: [items]."
 
-    # Sent in CONDENSER_ITEM mode when /condense is not enabled.
-    use_condenser_item: "§eUse a Condenser from your inventory to condense materials."
+    # Sent in SMART_PACKER_ITEM mode when /pack is not enabled.
+    use_smart_packer_item: "§eUse a Smart Packer from your inventory to pack materials."
 
   error:
     no_permission: "§cYou do not have permission to use this command."
-    condenser_item_required: "§cYou must have a Condenser in your inventory to use this command."
-    nothing_to_condense: "§eYou do not have any valid materials to condense."
+    smart_packer_item_required: "§cYou must have a Smart Packer in your inventory to use this command."
+    nothing_to_pack: "§eYou do not have any valid materials to pack."
 
     # Placeholder:
     #   [item1] = input material name
@@ -249,7 +249,7 @@ message:
 
 
 # ============================================================================
-#  SECTION 07: CONDENSE RECIPES
+#  SECTION 07: PACK RECIPES
 # ============================================================================
 #
 # Ordered alphabetically by input material family.
@@ -263,7 +263,7 @@ message:
 #     ratio_in: 9
 #     ratio_out: 1
 #
-condense:
+pack:
   BONE_MEAL:
     output: BONE_BLOCK
     ratio_in: 9

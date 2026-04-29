@@ -1,25 +1,25 @@
-name: CondenseReforged
+name: SmartPack
 version: '${project.version}'
-main: crosis47.minecraft.condense.CondensePlugin
+main: crosis47.minecraft.smartpack.SmartPack
 api-version: '1.21.11'
 authors: [ crosis47 ]
-description: Paper plugin with a command to condense items into other items.
+description: Paper plugin for smart Minecraft inventory packing and compression.
 
 commands:
-  condense:
-    description: Condense configured items into other items
-    permission: condense.use
-    usage: "/condense [reload|exclude|auto]"
+  pack:
+    description: Pack configured materials into compact storage forms
+    permission: smartpack.use
+    usage: "/pack [reload|exclude|auto]"
 
 permissions:
-  condense.use:
-    description: Allows use of /condense
+  smartpack.use:
+    description: Allows use of /pack
     default: true
 
-  condense.reload:
-    description: Allows reloading the plugin config
+  smartpack.reload:
+    description: Allows reloading the SmartPack config
     default: op
 
-  condense.auto:
-    description: Allows automatic condensing when auto-condense is enabled
+  smartpack.auto:
+    description: Allows automatic packing when auto-pack is enabled
     default: false

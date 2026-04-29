@@ -1,7 +1,7 @@
-package crosis47.minecraft.condense.commands;
+package crosis47.minecraft.smartpack.commands;
 
-import crosis47.minecraft.condense.CondensePlugin;
-import crosis47.minecraft.condense.requirements.CraftingTableMode;
+import crosis47.minecraft.smartpack.SmartPack;
+import crosis47.minecraft.smartpack.requirements.CraftingTableMode;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -51,7 +51,7 @@ import java.util.Set;
 import java.util.StringJoiner;
 import java.util.UUID;
 
-public final class CondenseCommand implements TabExecutor, Listener {
+public final class PackCommand implements TabExecutor, Listener {
 
     private static final int EXCLUDE_MENU_SIZE = 54;
     private static final int EXCLUDE_MENU_CONTENT_SIZE = 45;
@@ -63,14 +63,14 @@ public final class CondenseCommand implements TabExecutor, Listener {
     private static final long CONDENSE_PASS_DELAY_TICKS = 1L;
     private static final int CONDENSE_SETTLE_TICKS = 10;
 
-    private final CondensePlugin plugin;
+    private final SmartPack plugin;
     private final Map<UUID, ExcludeMenuSession> excludeMenuSessions = new HashMap<>();
     private final Set<UUID> condenseInProgress = new HashSet<>();
     private final Set<UUID> pendingAutoCondense = new HashSet<>();
     private final Map<UUID, Long> lastAutoCondenseTicks = new HashMap<>();
     private final Map<UUID, Long> lastAutoInventoryFullMessageTicks = new HashMap<>();
 
-    public CondenseCommand(final CondensePlugin plugin) {
+    public PackCommand(final SmartPack plugin) {
         this.plugin = plugin;
     }
 
@@ -83,7 +83,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
     ) {
         if (args.length > 0) {
             if (args[0].equalsIgnoreCase("reload")) {
-                if (!sender.hasPermission("condense.reload")) {
+                if (!sender.hasPermission("smartpack.reload")) {
                     sender.sendMessage(getMessage(
                             "message.error.no_permission",
                             "You do not have permission to use this command."
@@ -94,7 +94,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
                 plugin.reloadPluginConfig();
                 sender.sendMessage(getMessage(
                         "message.reload",
-                        "Condense Reforged config reloaded."
+                        "SmartPack config reloaded."
                 ));
                 return true;
             }
@@ -115,7 +115,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
                     return true;
                 }
 
-                if (!player.hasPermission("condense.auto")) {
+                if (!player.hasPermission("smartpack.auto")) {
                     player.sendMessage(getMessage(
                             "message.error.no_permission",
                             "You do not have permission to use this command."
@@ -139,19 +139,19 @@ public final class CondenseCommand implements TabExecutor, Listener {
             return true;
         }
 
-        if (plugin.isCondenserItemModeEnabled()) {
-            if (!plugin.isCondenserCommandAllowed()) {
+        if (plugin.isSmartPackerItemModeEnabled()) {
+            if (!plugin.isSmartPackerCommandAllowed()) {
                 player.sendMessage(getMessage(
-                        "message.info.use_condenser_item",
-                        "Use a Condenser from your inventory to condense materials."
+                        "message.info.use_smart_packer_item",
+                        "Use a Smart Packer from your inventory to pack materials."
                 ));
                 return true;
             }
 
-            if (!plugin.hasCondenserItem(player.getInventory().getStorageContents())) {
+            if (!plugin.hasSmartPackerItem(player.getInventory().getStorageContents())) {
                 player.sendMessage(getMessage(
-                        "message.error.condenser_item_required",
-                        "You must have a Condenser in your inventory to use this command."
+                        "message.error.smart_packer_item_required",
+                        "You must have a Smart Packer in your inventory to use this command."
                 ));
                 return true;
             }
@@ -168,7 +168,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
             return;
         }
 
-        if (!plugin.isCondenserItemModeEnabled()) {
+        if (!plugin.isSmartPackerItemModeEnabled()) {
             return;
         }
 
@@ -184,7 +184,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
             return;
         }
 
-        if (!plugin.isCondenserItem(event.getCurrentItem())) {
+        if (!plugin.isSmartPackerItem(event.getCurrentItem())) {
             return;
         }
 
@@ -197,11 +197,11 @@ public final class CondenseCommand implements TabExecutor, Listener {
             }
 
             if (enableAutoCondense) {
-                enableAutoCondenseFromCondenserItem(player);
+                enableAutoCondenseFromSmartPackerItem(player);
                 return;
             }
 
-            if (!player.hasPermission("condense.use")) {
+            if (!player.hasPermission("smartpack.use")) {
                 player.sendMessage(getMessage(
                         "message.error.no_permission",
                         "You do not have permission to use this command."
@@ -255,7 +255,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
     @EventHandler(ignoreCancelled = true)
     public void onBlockPlace(final BlockPlaceEvent event) {
-        if (!plugin.isCondenserItem(event.getItemInHand())) {
+        if (!plugin.isSmartPackerItem(event.getItemInHand())) {
             if (event.getBlockPlaced().getType() == Material.CRAFTING_TABLE
                     && shouldCheckNearbyCraftingTableAutoTrigger(
                             event.getPlayer(),
@@ -292,7 +292,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
     @EventHandler
     public void onPlayerJoin(final PlayerJoinEvent event) {
-        plugin.cleanupCondenserItems(event.getPlayer());
+        plugin.cleanupSmartPackerItems(event.getPlayer());
         queueAutoCondense(event.getPlayer(), AutoCondenseTrigger.JOIN);
     }
 
@@ -317,7 +317,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
         if (!condenseInProgress.add(playerId)) {
             if (!request.automatic()) {
-                player.sendMessage(Component.text("Condense is already running.", NamedTextColor.YELLOW));
+                player.sendMessage(Component.text("SmartPack is already running.", NamedTextColor.YELLOW));
             }
             return;
         }
@@ -409,8 +409,8 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
                 if (!execution.hadValidAttempt) {
                     String message = getMessage(
-                            "message.error.nothing_to_condense",
-                            "You do not have any valid materials to condense."
+                            "message.error.nothing_to_pack",
+                            "You do not have any valid materials to pack."
                     );
                     player.sendMessage(message);
                 }
@@ -433,7 +433,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
             if (execution.usedSmallRecipeBypass && execution.blockedByCraftingRequirement) {
                 String hint = getMessage(
                         "message.info.more_available_at_crafting_table",
-                        "More materials can be condensed at a crafting table."
+                        "More materials can be packed at a crafting table."
                 );
                 player.sendMessage(hint);
             }
@@ -464,7 +464,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
             return;
         }
 
-        long delayTicks = Math.max(1L, plugin.getConfig().getLong("auto_condense.delay_ticks", 2L));
+        long delayTicks = Math.max(1L, plugin.getConfig().getLong("auto_pack.delay_ticks", 2L));
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             pendingAutoCondense.remove(playerId);
 
@@ -483,15 +483,15 @@ public final class CondenseCommand implements TabExecutor, Listener {
     }
 
     private boolean isAutoCondenseTriggerEnabled(final AutoCondenseTrigger trigger) {
-        if (!plugin.getConfig().getBoolean("auto_condense.enabled", false)) {
+        if (!plugin.getConfig().getBoolean("auto_pack.enabled", false)) {
             return false;
         }
 
-        return plugin.getConfig().getBoolean("auto_condense.triggers." + trigger.configKey(), trigger.defaultEnabled());
+        return plugin.getConfig().getBoolean("auto_pack.triggers." + trigger.configKey(), trigger.defaultEnabled());
     }
 
     private boolean canAutoCondense(final Player player) {
-        if (!plugin.getConfig().getBoolean("auto_condense.enabled", false)) {
+        if (!plugin.getConfig().getBoolean("auto_pack.enabled", false)) {
             return false;
         }
 
@@ -499,27 +499,27 @@ public final class CondenseCommand implements TabExecutor, Listener {
             return false;
         }
 
-        if (!player.hasPermission("condense.use") || !player.hasPermission("condense.auto")) {
+        if (!player.hasPermission("smartpack.use") || !player.hasPermission("smartpack.auto")) {
             return false;
         }
 
-        if (plugin.isCondenserItemModeEnabled()) {
-            if (!plugin.getConfig().getBoolean("auto_condense.modes.condenser_item", false)) {
+        if (plugin.isSmartPackerItemModeEnabled()) {
+            if (!plugin.getConfig().getBoolean("auto_pack.modes.smart_packer_item", false)) {
                 return false;
             }
 
-            return !plugin.getConfig().getBoolean("auto_condense.condenser_item.require_item", true)
-                    || plugin.hasCondenserItem(player.getInventory().getStorageContents());
+            return !plugin.getConfig().getBoolean("auto_pack.smart_packer_item.require_item", true)
+                    || plugin.hasSmartPackerItem(player.getInventory().getStorageContents());
         }
 
-        return plugin.getConfig().getBoolean("auto_condense.modes.command", true);
+        return plugin.getConfig().getBoolean("auto_pack.modes.command", true);
     }
 
     private boolean shouldCheckNearbyCraftingTableAutoTrigger(
             final Player player,
             final AutoCondenseTrigger trigger
     ) {
-        if (plugin.isCondenserItemModeEnabled()) {
+        if (plugin.isSmartPackerItemModeEnabled()) {
             return false;
         }
 
@@ -539,8 +539,8 @@ public final class CondenseCommand implements TabExecutor, Listener {
         return false;
     }
 
-    private void enableAutoCondenseFromCondenserItem(final Player player) {
-        if (!player.hasPermission("condense.use") || !player.hasPermission("condense.auto")) {
+    private void enableAutoCondenseFromSmartPackerItem(final Player player) {
+        if (!player.hasPermission("smartpack.use") || !player.hasPermission("smartpack.auto")) {
             player.sendMessage(getMessage(
                     "message.error.no_permission",
                     "You do not have permission to use this command."
@@ -555,43 +555,43 @@ public final class CondenseCommand implements TabExecutor, Listener {
 
         plugin.setAutoCondenseEnabledForPlayer(player.getUniqueId(), true);
         player.sendMessage(getMessage(
-                "message.info.auto_condense_enabled",
-                "Auto-condense enabled."
+                "message.info.auto_pack_enabled",
+                "Auto-pack enabled."
         ));
     }
 
     private boolean isAutoCondenseAvailableInCurrentMode() {
-        if (!plugin.getConfig().getBoolean("auto_condense.enabled", false)) {
+        if (!plugin.getConfig().getBoolean("auto_pack.enabled", false)) {
             return false;
         }
 
-        if (plugin.isCondenserItemModeEnabled()) {
-            return plugin.getConfig().getBoolean("auto_condense.modes.condenser_item", false);
+        if (plugin.isSmartPackerItemModeEnabled()) {
+            return plugin.getConfig().getBoolean("auto_pack.modes.smart_packer_item", false);
         }
 
-        return plugin.getConfig().getBoolean("auto_condense.modes.command", true);
+        return plugin.getConfig().getBoolean("auto_pack.modes.command", true);
     }
 
     private void sendAutoCondenseUnavailable(final Player player) {
         player.sendMessage(getMessage(
-                "message.info.auto_condense_unavailable",
-                "Auto-condense is disabled on this server."
+                "message.info.auto_pack_unavailable",
+                "Auto-pack is disabled on this server."
         ));
     }
 
     private void sendAutoCondenseToggleMessage(final Player player, final boolean enabled) {
         String messagePath = enabled
-                ? "message.info.auto_condense_enabled"
-                : "message.info.auto_condense_disabled";
+                ? "message.info.auto_pack_enabled"
+                : "message.info.auto_pack_disabled";
         String fallback = enabled
-                ? "Auto-condense enabled."
-                : "Auto-condense disabled.";
+                ? "Auto-pack enabled."
+                : "Auto-pack disabled.";
 
         player.sendMessage(getMessage(messagePath, fallback));
     }
 
     private boolean isAutoCondenseCoolingDown(final UUID playerId) {
-        long cooldownTicks = Math.max(0L, plugin.getConfig().getLong("auto_condense.cooldown_ticks", 10L));
+        long cooldownTicks = Math.max(0L, plugin.getConfig().getLong("auto_pack.cooldown_ticks", 10L));
         if (cooldownTicks <= 0L) {
             return false;
         }
@@ -619,10 +619,10 @@ public final class CondenseCommand implements TabExecutor, Listener {
             if ("exclude".startsWith(input)) {
                 completions.add("exclude");
             }
-            if (sender.hasPermission("condense.auto") && "auto".startsWith(input)) {
+            if (sender.hasPermission("smartpack.auto") && "auto".startsWith(input)) {
                 completions.add("auto");
             }
-            if (sender.hasPermission("condense.reload") && "reload".startsWith(input)) {
+            if (sender.hasPermission("smartpack.reload") && "reload".startsWith(input)) {
                 completions.add("reload");
             }
 
@@ -633,7 +633,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
     }
 
     private CraftingRequirementState getCraftingRequirementState(final Player player) {
-        if (plugin.isCondenserItemModeEnabled()) {
+        if (plugin.isSmartPackerItemModeEnabled()) {
             return new CraftingRequirementState(
                     true,
                     "",
@@ -824,9 +824,9 @@ public final class CondenseCommand implements TabExecutor, Listener {
             final CondenseRequest request
     ) {
         PlayerInventory inventory = player.getInventory();
-        ConfigurationSection condenseSection = plugin.getConfig().getConfigurationSection("condense");
+        ConfigurationSection condenseSection = plugin.getConfig().getConfigurationSection("pack");
         if (condenseSection == null) {
-            plugin.getLogger().warning("Missing 'condense' section in config.yml");
+            plugin.getLogger().warning("Missing 'pack' section in config.yml");
             return new CondenseResult(
                     0,
                     false,
@@ -916,7 +916,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
         for (String key : condenseSection.getKeys(false)) {
             ConfigurationSection rule = condenseSection.getConfigurationSection(key);
             if (rule == null) {
-                plugin.getLogger().warning("Invalid condense rule section: " + key);
+                plugin.getLogger().warning("Invalid pack rule section: " + key);
                 continue;
             }
 
@@ -1235,7 +1235,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
             String item2 = formatMaterialTotals(summary.finalMaterialTotals());
 
             String message = getMessage(
-                    "message.condense.item",
+                    "message.pack.item",
                     "[item1] → [item2]"
             ).replace("[item1]", item1)
              .replace("[item2]", item2);
@@ -1277,9 +1277,9 @@ public final class CondenseCommand implements TabExecutor, Listener {
             final int totalOutputCount,
             final String condensedItems
     ) {
-        String message = getMessage("message.condense.summary", "Condensed [input] items down to [output].");
+        String message = getMessage("message.pack.summary", "Packed [input] items down to [output].");
         if (message.contains("[items]") && !message.contains("[input]") && !message.contains("[output]")) {
-            message = "Condensed [input] items down to [output].";
+            message = "Packed [input] items down to [output].";
         }
 
         return message
@@ -1325,13 +1325,13 @@ public final class CondenseCommand implements TabExecutor, Listener {
     ) {
         boolean inventoryFull = finalResult.totalAdditionalSlotsNeeded() > 0;
         if (inventoryFull && plugin.getConfig().getBoolean(
-                "auto_condense.feedback.inventory_full_actionbar",
+                "auto_pack.feedback.inventory_full_actionbar",
                 true
         )) {
             if (shouldSendAutoInventoryFullMessage(player.getUniqueId())) {
                 String message = getMessage(
-                        "message.auto_condense.inventory_full_actionbar",
-                        "§6Condense blocked: need [slots] more slot(s)."
+                        "message.auto_pack.inventory_full_actionbar",
+                        "§6Pack blocked: need [slots] more slot(s)."
                 ).replace("[slots]", String.valueOf(finalResult.totalAdditionalSlotsNeeded()));
 
                 sendActionBar(player, message);
@@ -1340,7 +1340,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
         }
 
         if (!execution.hasSuccessfulConversions()
-                || !plugin.getConfig().getBoolean("auto_condense.feedback.success_actionbar", true)) {
+                || !plugin.getConfig().getBoolean("auto_pack.feedback.success_actionbar", true)) {
             return;
         }
 
@@ -1350,8 +1350,8 @@ public final class CondenseCommand implements TabExecutor, Listener {
         String condensedItems = formatMaterialTotals(buildCombinedOriginTotals(originSummaries));
 
         String message = getMessage(
-                "message.auto_condense.actionbar",
-                "§aCondensed into [items]."
+                "message.auto_pack.actionbar",
+                "§aPacked into [items]."
         ).replace("[input]", String.valueOf(totalInputCount))
          .replace("[output]", String.valueOf(totalOutputCount))
          .replace("[items]", condensedItems);
@@ -1362,7 +1362,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
     private boolean shouldSendAutoInventoryFullMessage(final UUID playerId) {
         long cooldownTicks = Math.max(
                 0L,
-                plugin.getConfig().getLong("auto_condense.feedback.inventory_full_cooldown_ticks", 100L)
+                plugin.getConfig().getLong("auto_pack.feedback.inventory_full_cooldown_ticks", 100L)
         );
         if (cooldownTicks <= 0L) {
             return true;
@@ -1727,7 +1727,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
     private void openExcludeMenu(final Player player, final int page) {
         List<Material> configuredInputs = getConfiguredInputMaterials();
         if (configuredInputs.isEmpty()) {
-            player.sendMessage(Component.text("No condense inputs are currently configured.", NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("No pack inputs are currently configured.", NamedTextColor.YELLOW));
             return;
         }
 
@@ -1745,7 +1745,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
         Inventory inventory = Bukkit.createInventory(
                 holder,
                 EXCLUDE_MENU_SIZE,
-                Component.text("Condense Exclusions", NamedTextColor.DARK_GREEN)
+                Component.text("SmartPack Exclusions", NamedTextColor.DARK_GREEN)
         );
         holder.setInventory(inventory);
         renderExcludeMenu(inventory, player, holder, configuredInputs, safePage, totalPages);
@@ -1783,7 +1783,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
                 if (excluded) {
                     player.sendMessage(
                             Component.text(getItemName(material), NamedTextColor.RED)
-                                    .append(Component.text(" is now persistently excluded from condensing.", NamedTextColor.GRAY))
+                                    .append(Component.text(" is now persistently excluded from packing.", NamedTextColor.GRAY))
                     );
                 } else {
                     player.sendMessage(
@@ -1812,12 +1812,12 @@ public final class CondenseCommand implements TabExecutor, Listener {
             if (excluded) {
                 player.sendMessage(
                         Component.text(getItemName(material), NamedTextColor.YELLOW)
-                                .append(Component.text(" will be skipped on the next condense run only.", NamedTextColor.GRAY))
+                                .append(Component.text(" will be skipped on the next pack run only.", NamedTextColor.GRAY))
                 );
             } else {
                 player.sendMessage(
                         Component.text(getItemName(material), NamedTextColor.GREEN)
-                                .append(Component.text(" will no longer be skipped on the next condense run.", NamedTextColor.GRAY))
+                                .append(Component.text(" will no longer be skipped on the next pack run.", NamedTextColor.GRAY))
                 );
             }
             return;
@@ -1949,7 +1949,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
             ));
         } else if (nextRunExcluded) {
             meta.lore(List.of(
-                    Component.text("This item will be skipped on the next condense run only.", NamedTextColor.YELLOW)
+                    Component.text("This item will be skipped on the next pack run only.", NamedTextColor.YELLOW)
                             .decoration(TextDecoration.ITALIC, false),
                     Component.text("The slot glow marks a temporary exclusion.", NamedTextColor.GOLD)
                             .decoration(TextDecoration.ITALIC, false),
@@ -1982,7 +1982,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
                         .decoration(TextDecoration.ITALIC, false)
         );
         meta.lore(List.of(
-                Component.text("Left-click: skip on the next condense run only.", NamedTextColor.GRAY)
+                Component.text("Left-click: skip on the next pack run only.", NamedTextColor.GRAY)
                         .decoration(TextDecoration.ITALIC, false),
                 Component.text("Right-click: toggle a persistent exclusion.", NamedTextColor.GRAY)
                         .decoration(TextDecoration.ITALIC, false),
@@ -2037,7 +2037,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
     }
 
     private List<Material> getConfiguredInputMaterials() {
-        ConfigurationSection condenseSection = plugin.getConfig().getConfigurationSection("condense");
+        ConfigurationSection condenseSection = plugin.getConfig().getConfigurationSection("pack");
         if (condenseSection == null) {
             return Collections.emptyList();
         }
@@ -2193,7 +2193,7 @@ public final class CondenseCommand implements TabExecutor, Listener {
     }
 
     private int getCondenseDepth(final Material material) {
-        ConfigurationSection condenseSection = plugin.getConfig().getConfigurationSection("condense");
+        ConfigurationSection condenseSection = plugin.getConfig().getConfigurationSection("pack");
         if (condenseSection == null) {
             return 0;
         }

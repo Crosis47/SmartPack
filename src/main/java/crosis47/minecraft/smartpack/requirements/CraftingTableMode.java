@@ -1,4 +1,4 @@
-package crosis47.minecraft.condense.requirements;
+package crosis47.minecraft.smartpack.requirements;
 
 public enum CraftingTableMode {
     DISABLED,

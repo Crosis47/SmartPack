@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- Rebranded the plugin to **SmartPack**.
+- Renamed the main command from `/condense` to `/pack`.
+- Renamed permission nodes from `condense.*` to `smartpack.*`.
+- Renamed the crafted activation item to **Smart Packer** and updated the item-mode config paths.
+- Renamed the Java package namespace to `crosis47.minecraft.smartpack`.
+
 ---
 
 ## [1.4.0] - 2026-04-28

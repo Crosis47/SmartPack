@@ -1,4 +1,4 @@
-package crosis47.minecraft.condense.storage;
+package crosis47.minecraft.smartpack.storage;
 
 import org.bukkit.Material;
 import org.bukkit.configuration.ConfigurationSection;
@@ -93,7 +93,7 @@ public final class PlayerExclusionStore {
 
                 Material material = Material.matchMaterial(rawMaterial);
                 if (material == null || !material.isItem()) {
-                    plugin.getLogger().warning("Skipping invalid excluded condense material in player-exclusions.db: "
+                    plugin.getLogger().warning("Skipping invalid excluded pack material in player-exclusions.db: "
                             + rawMaterial);
                     continue;
                 }
@@ -123,7 +123,7 @@ public final class PlayerExclusionStore {
                 try {
                     playerId = UUID.fromString(rawPlayerId);
                 } catch (IllegalArgumentException ex) {
-                    plugin.getLogger().warning("Skipping invalid player UUID in auto-condense preferences: "
+                    plugin.getLogger().warning("Skipping invalid player UUID in auto-pack preferences: "
                             + rawPlayerId);
                     continue;
                 }
@@ -225,7 +225,7 @@ public final class PlayerExclusionStore {
             try {
                 setAutoCondenseEnabled(playerId, enabled);
             } catch (Exception ex) {
-                plugin.getLogger().severe("Failed to persist auto-condense preference asynchronously for player "
+                plugin.getLogger().severe("Failed to persist auto-pack preference asynchronously for player "
                         + playerId + ": " + ex.getMessage());
                 ex.printStackTrace();
             }
@@ -335,7 +335,7 @@ public final class PlayerExclusionStore {
                     for (String excludedName : excludedNames) {
                         Material material = Material.matchMaterial(excludedName);
                         if (material == null || !material.isItem()) {
-                            plugin.getLogger().warning("Skipping invalid excluded condense material '"
+                            plugin.getLogger().warning("Skipping invalid excluded pack material '"
                                     + excludedName + "' for player " + playerId + " during SQLite migration.");
                             continue;
                         }

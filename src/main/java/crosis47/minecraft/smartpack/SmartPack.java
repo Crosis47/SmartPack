@@ -1,7 +1,7 @@
-package crosis47.minecraft.condense;
+package crosis47.minecraft.smartpack;
 
-import crosis47.minecraft.condense.commands.CondenseCommand;
-import crosis47.minecraft.condense.storage.PlayerExclusionStore;
+import crosis47.minecraft.smartpack.commands.PackCommand;
+import crosis47.minecraft.smartpack.storage.PlayerExclusionStore;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -38,24 +38,24 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.Map;
 
-public final class CondensePlugin extends JavaPlugin {
+public final class SmartPack extends JavaPlugin {
 
-    private static final int CURRENT_CONFIG_VERSION = 8;
-    private static final String DEFAULT_CONDENSER_NAME = "Condenser";
+    private static final int CURRENT_CONFIG_VERSION = 10;
+    private static final String DEFAULT_SMART_PACKER_NAME = "Smart Packer";
 
     private final Set<Material> disabledCondenseInputs = new HashSet<>();
     private final Map<UUID, Set<Material>> excludedCondenseInputsByPlayer = new HashMap<>();
     private final Map<UUID, Set<Material>> nextRunExcludedCondenseInputsByPlayer = new HashMap<>();
     private final Map<UUID, Boolean> autoCondenseEnabledByPlayer = new HashMap<>();
 
-    private NamespacedKey condenserRecipeKey;
-    private NamespacedKey condenserItemKey;
+    private NamespacedKey smartPackerRecipeKey;
+    private NamespacedKey smartPackerItemKey;
     private PlayerExclusionStore playerExclusionStore;
 
     @Override
     public void onEnable() {
-        condenserRecipeKey = new NamespacedKey(this, "condenser");
-        condenserItemKey = new NamespacedKey(this, "condenser_item");
+        smartPackerRecipeKey = new NamespacedKey(this, "smart_packer");
+        smartPackerItemKey = new NamespacedKey(this, "smart_packer_item");
 
         saveDefaultConfig();
         updateConfigIfNeeded();
@@ -76,29 +76,29 @@ public final class CondensePlugin extends JavaPlugin {
             return;
         }
 
-        PluginCommand condenseCommand = Objects.requireNonNull(
-                getCommand("condense"),
-                "Command 'condense' is missing from plugin.yml"
+        PluginCommand packCommand = Objects.requireNonNull(
+                getCommand("pack"),
+                "Command 'pack' is missing from plugin.yml"
         );
 
-        CondenseCommand commandHandler = new CondenseCommand(this);
-        condenseCommand.setExecutor(commandHandler);
-        condenseCommand.setTabCompleter(commandHandler);
+        PackCommand commandHandler = new PackCommand(this);
+        packCommand.setExecutor(commandHandler);
+        packCommand.setTabCompleter(commandHandler);
         getServer().getPluginManager().registerEvents(commandHandler, this);
 
-        refreshCondenserRecipe();
-        cleanupCondenserItemsForOnlinePlayers();
+        refreshSmartPackerRecipe();
+        cleanupSmartPackerItemsForOnlinePlayers();
 
-        getLogger().info("Condense Reforged enabled.");
+        getLogger().info("SmartPack enabled.");
     }
 
     @Override
     public void onDisable() {
-        unregisterCondenserRecipe();
+        unregisterSmartPackerRecipe();
         if (playerExclusionStore != null) {
             playerExclusionStore.shutdown();
         }
-        getLogger().info("Condense Reforged disabled.");
+        getLogger().info("SmartPack disabled.");
     }
 
     public void reloadPluginConfig() {
@@ -107,8 +107,8 @@ public final class CondensePlugin extends JavaPlugin {
         validateConfig();
         reloadPersistentExclusionsFromStore();
         reloadPersistentAutoCondensePreferencesFromStore();
-        refreshCondenserRecipe();
-        cleanupCondenserItemsForOnlinePlayers();
+        refreshSmartPackerRecipe();
+        cleanupSmartPackerItemsForOnlinePlayers();
     }
 
     public boolean isCondenseInputDisabled(final Material material) {
@@ -200,7 +200,7 @@ public final class CondensePlugin extends JavaPlugin {
 
         return autoCondenseEnabledByPlayer.getOrDefault(
                 playerId,
-                getConfig().getBoolean("auto_condense.default_enabled", true)
+                getConfig().getBoolean("auto_pack.default_enabled", true)
         );
     }
 
@@ -339,7 +339,7 @@ public final class CondensePlugin extends JavaPlugin {
             playerExclusionStore.flushPendingWrites();
             autoCondenseEnabledByPlayer.putAll(playerExclusionStore.loadAutoCondensePreferences());
         } catch (Exception ex) {
-            getLogger().severe("Failed to load persistent auto-condense preferences: " + ex.getMessage());
+            getLogger().severe("Failed to load persistent auto-pack preferences: " + ex.getMessage());
             ex.printStackTrace();
         }
     }
@@ -377,54 +377,54 @@ public final class CondensePlugin extends JavaPlugin {
         return mode;
     }
 
-    public boolean isCondenserItemModeEnabled() {
-        return getActivationMode() == ActivationMode.CONDENSER_ITEM;
+    public boolean isSmartPackerItemModeEnabled() {
+        return getActivationMode() == ActivationMode.SMART_PACKER_ITEM;
     }
 
-    public boolean isCondenserCommandAllowed() {
-        return getConfig().getBoolean("activation.condenser_item.allow_command_with_item", false);
+    public boolean isSmartPackerCommandAllowed() {
+        return getConfig().getBoolean("activation.smart_packer_item.allow_command_with_item", false);
     }
 
-    public ItemStack createCondenserItem() {
+    public ItemStack createSmartPackerItem() {
         ItemStack item = new ItemStack(Material.CRAFTING_TABLE);
         ItemMeta meta = item.getItemMeta();
 
-        meta.displayName(Component.text(DEFAULT_CONDENSER_NAME, NamedTextColor.AQUA)
+        meta.displayName(Component.text(DEFAULT_SMART_PACKER_NAME, NamedTextColor.AQUA)
                 .decoration(TextDecoration.ITALIC, false));
         meta.lore(List.of(
-                Component.text("Instant mode: right-click to condense now.", NamedTextColor.GRAY)
+                Component.text("Instant mode: right-click to pack now.", NamedTextColor.GRAY)
                         .decoration(TextDecoration.ITALIC, false),
                 Component.text("Auto mode: shift-right-click to enable.", NamedTextColor.GRAY)
                         .decoration(TextDecoration.ITALIC, false),
-                Component.text("Auto mode condenses after item pickups.", NamedTextColor.DARK_GRAY)
+                Component.text("Auto mode packs after item pickups.", NamedTextColor.DARK_GRAY)
                         .decoration(TextDecoration.ITALIC, false)
         ));
         meta.setEnchantmentGlintOverride(true);
-        meta.getPersistentDataContainer().set(condenserItemKey, PersistentDataType.BYTE, (byte) 1);
+        meta.getPersistentDataContainer().set(smartPackerItemKey, PersistentDataType.BYTE, (byte) 1);
 
         item.setItemMeta(meta);
         return item;
     }
 
-    public boolean isCondenserItem(final ItemStack item) {
+    public boolean isSmartPackerItem(final ItemStack item) {
         if (item == null || item.getType() != Material.CRAFTING_TABLE || !item.hasItemMeta()) {
             return false;
         }
 
         Byte marker = item.getItemMeta()
                 .getPersistentDataContainer()
-                .get(condenserItemKey, PersistentDataType.BYTE);
+                .get(smartPackerItemKey, PersistentDataType.BYTE);
 
         return marker != null && marker == (byte) 1;
     }
 
-    public boolean hasCondenserItem(final ItemStack[] contents) {
+    public boolean hasSmartPackerItem(final ItemStack[] contents) {
         if (contents == null) {
             return false;
         }
 
         for (ItemStack item : contents) {
-            if (isCondenserItem(item)) {
+            if (isSmartPackerItem(item)) {
                 return true;
             }
         }
@@ -432,20 +432,20 @@ public final class CondensePlugin extends JavaPlugin {
         return false;
     }
 
-    public int cleanupCondenserItems(final Player player) {
-        if (player == null || isCondenserItemModeEnabled()) {
+    public int cleanupSmartPackerItems(final Player player) {
+        if (player == null || isSmartPackerItemModeEnabled()) {
             return 0;
         }
 
         ItemStack[] contents = player.getInventory().getContents();
-        int removed = removeCondenserItems(contents);
+        int removed = removeSmartPackerItems(contents);
 
         if (removed > 0) {
             player.getInventory().setContents(contents);
         }
 
         ItemStack cursorItem = player.getItemOnCursor();
-        if (isCondenserItem(cursorItem)) {
+        if (isSmartPackerItem(cursorItem)) {
             removed += cursorItem.getAmount();
             player.setItemOnCursor(null);
         }
@@ -457,19 +457,19 @@ public final class CondensePlugin extends JavaPlugin {
         return removed;
     }
 
-    public void cleanupCondenserItemsForOnlinePlayers() {
-        if (isCondenserItemModeEnabled()) {
+    public void cleanupSmartPackerItemsForOnlinePlayers() {
+        if (isSmartPackerItemModeEnabled()) {
             return;
         }
 
         int totalRemoved = 0;
         for (Player player : Bukkit.getOnlinePlayers()) {
-            totalRemoved += cleanupCondenserItems(player);
+            totalRemoved += cleanupSmartPackerItems(player);
         }
 
         if (totalRemoved > 0) {
             getLogger().info("Removed " + totalRemoved
-                    + " leftover Condenser item(s) because COMMAND mode is active.");
+                    + " leftover Smart Packer item(s) because COMMAND mode is active.");
         }
     }
 
@@ -492,6 +492,12 @@ public final class CondensePlugin extends JavaPlugin {
 
             if (existingVersion < 1) {
                 runConfigMigrationsFromPreV1(config);
+            }
+            if (existingVersion < 9) {
+                runConfigMigrationsFromPreV9(config);
+            }
+            if (existingVersion < 10) {
+                runConfigMigrationsFromPreV10(config);
             }
 
             config.set("config-version", CURRENT_CONFIG_VERSION);
@@ -541,6 +547,58 @@ public final class CondensePlugin extends JavaPlugin {
         validateCondenseRecipes();
     }
 
+    private void runConfigMigrationsFromPreV9(final FileConfiguration config) {
+        String activationMode = config.getString("activation.mode");
+        if ("CONDENSER_ITEM".equalsIgnoreCase(activationMode)) {
+            config.set("activation.mode", "SMART_PACKER_ITEM");
+            getLogger().info("Migrated activation.mode from CONDENSER_ITEM to SMART_PACKER_ITEM.");
+        }
+
+        migrateConfigSection(config, "activation.condenser_item", "activation.smart_packer_item");
+        migrateConfigValue(config, "auto_condense.modes.condenser_item", "auto_condense.modes.smart_packer_item");
+        migrateConfigSection(config, "auto_condense.condenser_item", "auto_condense.smart_packer_item");
+        migrateConfigValue(config, "message.info.use_condenser_item", "message.info.use_smart_packer_item");
+        migrateConfigValue(config, "message.error.condenser_item_required", "message.error.smart_packer_item_required");
+    }
+
+    private void runConfigMigrationsFromPreV10(final FileConfiguration config) {
+        migrateConfigSection(config, "condense", "pack");
+        migrateConfigSection(config, "auto_condense", "auto_pack");
+        migrateConfigSection(config, "message.condense", "message.pack");
+        migrateConfigSection(config, "message.auto_condense", "message.auto_pack");
+        migrateConfigValue(config, "message.info.auto_condense_enabled", "message.info.auto_pack_enabled");
+        migrateConfigValue(config, "message.info.auto_condense_disabled", "message.info.auto_pack_disabled");
+        migrateConfigValue(config, "message.info.auto_condense_unavailable", "message.info.auto_pack_unavailable");
+        migrateConfigValue(config, "message.error.nothing_to_condense", "message.error.nothing_to_pack");
+    }
+
+    private void migrateConfigSection(final FileConfiguration config, final String oldPath, final String newPath) {
+        ConfigurationSection oldSection = config.getConfigurationSection(oldPath);
+        if (oldSection == null) {
+            return;
+        }
+
+        for (String key : oldSection.getKeys(true)) {
+            if (!oldSection.isConfigurationSection(key)) {
+                config.set(newPath + "." + key, oldSection.get(key));
+            }
+        }
+
+        config.set(oldPath, null);
+        getLogger().info("Migrated config section " + oldPath + " to " + newPath + ".");
+    }
+
+    private void migrateConfigValue(final FileConfiguration config, final String oldPath, final String newPath) {
+        if (!config.isSet(oldPath)) {
+            return;
+        }
+
+        config.set(newPath, config.get(oldPath));
+
+        config.set(oldPath, null);
+        getLogger().info("Migrated config value " + oldPath + " to " + newPath + ".");
+    }
+
     private void validateActivationMode() {
         String mode = getConfig().getString("activation.mode", "COMMAND");
         if (mode == null || mode.isBlank()) {
@@ -550,7 +608,7 @@ public final class CondensePlugin extends JavaPlugin {
 
         if (ActivationMode.fromString(mode) == null) {
             getLogger().warning("Config warning: invalid activation.mode value '" + mode
-                    + "'. Valid values are COMMAND and CONDENSER_ITEM.");
+                    + "'. Valid values are COMMAND and SMART_PACKER_ITEM.");
         }
     }
 
@@ -573,9 +631,9 @@ public final class CondensePlugin extends JavaPlugin {
     }
 
     private void validateCondenseRecipes() {
-        ConfigurationSection condenseSection = getConfig().getConfigurationSection("condense");
+        ConfigurationSection condenseSection = getConfig().getConfigurationSection("pack");
         if (condenseSection == null) {
-            getLogger().warning("Config warning: missing 'condense' section in config.yml");
+            getLogger().warning("Config warning: missing 'pack' section in config.yml");
             return;
         }
 
@@ -586,38 +644,38 @@ public final class CondensePlugin extends JavaPlugin {
             ConfigurationSection rule = condenseSection.getConfigurationSection(inputKey);
 
             if (rule == null) {
-                getLogger().warning("Config warning: condense entry '" + inputKey + "' is not a valid section.");
+                getLogger().warning("Config warning: pack entry '" + inputKey + "' is not a valid section.");
                 continue;
             }
 
             Material input = Material.matchMaterial(inputKey);
             if (input == null) {
-                getLogger().warning("Config warning: invalid condense input material '" + inputKey + "'");
+                getLogger().warning("Config warning: invalid pack input material '" + inputKey + "'");
             }
 
             String outputName = rule.getString("output");
             Material output = outputName == null ? null : Material.matchMaterial(outputName);
             if (outputName == null || output == null) {
-                getLogger().warning("Config warning: invalid condense output material for '" + inputKey + "': '" + outputName + "'");
+                getLogger().warning("Config warning: invalid pack output material for '" + inputKey + "': '" + outputName + "'");
             }
 
             int ratioIn = rule.getInt("ratio_in");
             int ratioOut = rule.getInt("ratio_out");
 
             if (ratioIn <= 0) {
-                getLogger().warning("Config warning: condense entry '" + inputKey + "' has invalid ratio_in=" + ratioIn + ". It must be greater than 0.");
+                getLogger().warning("Config warning: pack entry '" + inputKey + "' has invalid ratio_in=" + ratioIn + ". It must be greater than 0.");
             }
 
             if (ratioOut <= 0) {
-                getLogger().warning("Config warning: condense entry '" + inputKey + "' has invalid ratio_out=" + ratioOut + ". It must be greater than 0.");
+                getLogger().warning("Config warning: pack entry '" + inputKey + "' has invalid ratio_out=" + ratioOut + ". It must be greater than 0.");
             }
 
             if (input != null && !input.isItem()) {
-                getLogger().warning("Config warning: condense input material '" + inputKey + "' is not an item material.");
+                getLogger().warning("Config warning: pack input material '" + inputKey + "' is not an item material.");
             }
 
             if (output != null && !output.isItem()) {
-                getLogger().warning("Config warning: condense output material '" + outputName + "' is not an item material.");
+                getLogger().warning("Config warning: pack output material '" + outputName + "' is not an item material.");
             }
 
             if (input == null || output == null || ratioIn <= 0 || ratioOut <= 0 || !input.isItem() || !output.isItem()) {
@@ -627,19 +685,19 @@ public final class CondensePlugin extends JavaPlugin {
             boolean reversible = isRecipeReversible(input, output, ratioIn, ratioOut);
 
             if (!reversible && warnIfNotReversible) {
-                getLogger().warning("Config warning: condense recipe '" + input + " -> " + output
+                getLogger().warning("Config warning: pack recipe '" + input + " -> " + output
                         + "' does not appear reversible in the currently loaded server recipes.");
             }
 
             if (!reversible && disableNonReversible) {
                 disabledCondenseInputs.add(input);
-                getLogger().warning("Config warning: disabling non-reversible condense recipe for input '" + input + "'.");
+                getLogger().warning("Config warning: disabling non-reversible pack recipe for input '" + input + "'.");
             }
         }
 
         if (!disabledCondenseInputs.isEmpty()) {
             getLogger().warning("Disabled " + disabledCondenseInputs.size()
-                    + " non-reversible condense recipe(s): " + disabledCondenseInputs);
+                    + " non-reversible pack recipe(s): " + disabledCondenseInputs);
         }
     }
 
@@ -816,7 +874,7 @@ public final class CondensePlugin extends JavaPlugin {
         return false;
     }
 
-    private int removeCondenserItems(final ItemStack[] contents) {
+    private int removeSmartPackerItems(final ItemStack[] contents) {
         if (contents == null) {
             return 0;
         }
@@ -825,7 +883,7 @@ public final class CondensePlugin extends JavaPlugin {
 
         for (int i = 0; i < contents.length; i++) {
             ItemStack item = contents[i];
-            if (!isCondenserItem(item)) {
+            if (!isSmartPackerItem(item)) {
                 continue;
             }
 
@@ -836,38 +894,38 @@ public final class CondensePlugin extends JavaPlugin {
         return removed;
     }
 
-    private void refreshCondenserRecipe() {
-        unregisterCondenserRecipe();
+    private void refreshSmartPackerRecipe() {
+        unregisterSmartPackerRecipe();
 
-        if (!isCondenserItemModeEnabled()) {
+        if (!isSmartPackerItemModeEnabled()) {
             return;
         }
 
-        ShapedRecipe recipe = createCondenserRecipeFromConfig();
+        ShapedRecipe recipe = createSmartPackerRecipeFromConfig();
         if (recipe == null) {
-            getLogger().warning("Condenser item mode is enabled, but the configured recipe is invalid. "
-                    + "The Condenser recipe was not registered.");
+            getLogger().warning("Smart Packer item mode is enabled, but the configured recipe is invalid. "
+                    + "The Smart Packer recipe was not registered.");
             return;
         }
 
         Bukkit.addRecipe(recipe);
-        getLogger().info("Registered Condenser crafting recipe.");
+        getLogger().info("Registered Smart Packer crafting recipe.");
     }
 
-    private void unregisterCondenserRecipe() {
-        Bukkit.removeRecipe(condenserRecipeKey);
+    private void unregisterSmartPackerRecipe() {
+        Bukkit.removeRecipe(smartPackerRecipeKey);
     }
 
-    private ShapedRecipe createCondenserRecipeFromConfig() {
-        ConfigurationSection recipeSection = getConfig().getConfigurationSection("activation.condenser_item.recipe");
+    private ShapedRecipe createSmartPackerRecipeFromConfig() {
+        ConfigurationSection recipeSection = getConfig().getConfigurationSection("activation.smart_packer_item.recipe");
         if (recipeSection == null) {
-            getLogger().warning("Config warning: missing activation.condenser_item.recipe section.");
+            getLogger().warning("Config warning: missing activation.smart_packer_item.recipe section.");
             return null;
         }
 
         List<String> shapeList = recipeSection.getStringList("shape");
         if (shapeList.isEmpty() || shapeList.size() > 3) {
-            getLogger().warning("Config warning: activation.condenser_item.recipe.shape must contain 1 to 3 rows.");
+            getLogger().warning("Config warning: activation.smart_packer_item.recipe.shape must contain 1 to 3 rows.");
             return null;
         }
 
@@ -878,7 +936,7 @@ public final class CondensePlugin extends JavaPlugin {
         for (int i = 0; i < shapeList.size(); i++) {
             String row = shapeList.get(i);
             if (row == null || row.isEmpty() || row.length() > 3) {
-                getLogger().warning("Config warning: invalid Condenser recipe row '" + row
+                getLogger().warning("Config warning: invalid Smart Packer recipe row '" + row
                         + "'. Each row must be 1 to 3 characters long.");
                 return null;
             }
@@ -886,7 +944,7 @@ public final class CondensePlugin extends JavaPlugin {
             if (expectedWidth == null) {
                 expectedWidth = row.length();
             } else if (row.length() != expectedWidth) {
-                getLogger().warning("Config warning: all Condenser recipe rows must have the same width.");
+                getLogger().warning("Config warning: all Smart Packer recipe rows must have the same width.");
                 return null;
             }
 
@@ -900,16 +958,16 @@ public final class CondensePlugin extends JavaPlugin {
 
         ConfigurationSection ingredientsSection = recipeSection.getConfigurationSection("ingredients");
         if (ingredientsSection == null) {
-            getLogger().warning("Config warning: missing activation.condenser_item.recipe.ingredients section.");
+            getLogger().warning("Config warning: missing activation.smart_packer_item.recipe.ingredients section.");
             return null;
         }
 
         ShapedRecipe recipe;
         try {
-            recipe = new ShapedRecipe(condenserRecipeKey, createCondenserItem());
+            recipe = new ShapedRecipe(smartPackerRecipeKey, createSmartPackerItem());
             recipe.shape(shape);
         } catch (IllegalArgumentException ex) {
-            getLogger().warning("Config warning: failed to build Condenser recipe shape: " + ex.getMessage());
+            getLogger().warning("Config warning: failed to build Smart Packer recipe shape: " + ex.getMessage());
             return null;
         }
 
@@ -918,7 +976,7 @@ public final class CondensePlugin extends JavaPlugin {
             Material ingredient = materialName == null ? null : Material.matchMaterial(materialName);
 
             if (ingredient == null || !ingredient.isItem()) {
-                getLogger().warning("Config warning: invalid Condenser recipe ingredient '" + key
+                getLogger().warning("Config warning: invalid Smart Packer recipe ingredient '" + key
                         + "' = '" + materialName + "'.");
                 return null;
             }
