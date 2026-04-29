@@ -58,7 +58,10 @@ git push origin v1.4.0
 
 The workflow builds with Java 21, verifies that the tag matches the Maven
 version, and uploads `target/smartpack-<version>.jar` to the GitHub release.
-It can also be run manually for an existing `vX.Y.Z` tag from the Actions tab.
+It can also be run manually from the Actions tab with either `X.Y.Z` or
+`vX.Y.Z`. Manual runs use an existing matching tag when one is present; when
+the tag does not exist yet, the workflow creates it from the selected branch
+after the build passes.
 
 ## Install
 

@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing release tag to publish, such as v1.4.0"
+        description: "Release version or tag, such as 1.4.0 or v1.4.0"
         required: true
         type: string
 
@@ -21,7 +21,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -34,24 +34,27 @@ jobs:
           set -euo pipefail
 
           if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-            tag="$REQUESTED_TAG"
+            requested="${REQUESTED_TAG#refs/tags/}"
+            version="${requested#v}"
+            tag="v$version"
           else
             tag="$GITHUB_REF_NAME"
+            version="${tag#v}"
           fi
 
-          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error::Release tags must look like v1.2.3 or v1.2.3-rc.1."
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Release versions must look like 1.2.3 or 1.2.3-rc.1."
             exit 1
           fi
 
-          version="${tag#v}"
           {
             echo "tag=$tag"
             echo "version=$version"
             echo "artifact=target/smartpack-$version.jar"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Check out requested tag
+      - name: Prepare manual release ref
+        id: manual-ref
         if: github.event_name == 'workflow_dispatch'
         shell: bash
         env:
@@ -59,10 +62,18 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --tags --force
-          git checkout --detach "refs/tags/$TAG"
+
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "Using existing release tag $TAG."
+            git checkout --detach "refs/tags/$TAG"
+            echo "create_tag=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Tag $TAG does not exist yet. It will be created from $GITHUB_SHA after the build passes."
+            echo "create_tag=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
@@ -110,6 +121,25 @@ jobs:
               echo "Built from tag $TAG."
             } > release-notes.md
           fi
+
+      - name: Create release tag
+        if: github.event_name == 'workflow_dispatch' && steps.manual-ref.outputs.create_tag == 'true'
+        shell: bash
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::Tag $TAG was created while this workflow was running. Re-run the workflow to use that tag."
+            exit 1
+          fi
+
+          git tag "$TAG"
+          git push origin "refs/tags/$TAG"
 
       - name: Publish GitHub release
         shell: bash
