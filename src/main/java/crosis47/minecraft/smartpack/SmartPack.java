@@ -43,10 +43,10 @@ public final class SmartPack extends JavaPlugin {
     private static final int CURRENT_CONFIG_VERSION = 10;
     private static final String DEFAULT_SMART_PACKER_NAME = "Smart Packer";
 
-    private final Set<Material> disabledCondenseInputs = new HashSet<>();
-    private final Map<UUID, Set<Material>> excludedCondenseInputsByPlayer = new HashMap<>();
-    private final Map<UUID, Set<Material>> nextRunExcludedCondenseInputsByPlayer = new HashMap<>();
-    private final Map<UUID, Boolean> autoCondenseEnabledByPlayer = new HashMap<>();
+    private final Set<Material> disabledPackInputs = new HashSet<>();
+    private final Map<UUID, Set<Material>> excludedPackInputsByPlayer = new HashMap<>();
+    private final Map<UUID, Set<Material>> nextRunExcludedPackInputsByPlayer = new HashMap<>();
+    private final Map<UUID, Boolean> autoPackEnabledByPlayer = new HashMap<>();
 
     private NamespacedKey smartPackerRecipeKey;
     private NamespacedKey smartPackerItemKey;
@@ -63,12 +63,11 @@ public final class SmartPack extends JavaPlugin {
         try {
             playerExclusionStore = new PlayerExclusionStore(
                     this,
-                    new File(getDataFolder(), "player-exclusions.db"),
-                    new File(getDataFolder(), "player-exclusions.yml")
+                    new File(getDataFolder(), "player-exclusions.db")
             );
             playerExclusionStore.initialize();
             reloadPersistentExclusionsFromStore();
-            reloadPersistentAutoCondensePreferencesFromStore();
+            reloadPersistentAutoPackPreferencesFromStore();
         } catch (Exception ex) {
             getLogger().severe("Failed to initialize SQLite player exclusion storage: " + ex.getMessage());
             ex.printStackTrace();
@@ -106,60 +105,60 @@ public final class SmartPack extends JavaPlugin {
         updateConfigIfNeeded();
         validateConfig();
         reloadPersistentExclusionsFromStore();
-        reloadPersistentAutoCondensePreferencesFromStore();
+        reloadPersistentAutoPackPreferencesFromStore();
         refreshSmartPackerRecipe();
         cleanupSmartPackerItemsForOnlinePlayers();
     }
 
-    public boolean isCondenseInputDisabled(final Material material) {
-        return disabledCondenseInputs.contains(material);
+    public boolean isPackInputDisabled(final Material material) {
+        return disabledPackInputs.contains(material);
     }
 
-    public Set<Material> getDisabledCondenseInputs() {
-        return Collections.unmodifiableSet(disabledCondenseInputs);
+    public Set<Material> getDisabledPackInputs() {
+        return Collections.unmodifiableSet(disabledPackInputs);
     }
 
-    public boolean isCondenseInputExcluded(final UUID playerId, final Material material) {
+    public boolean isPackInputExcluded(final UUID playerId, final Material material) {
         if (playerId == null || material == null) {
             return false;
         }
 
-        Set<Material> excludedInputs = excludedCondenseInputsByPlayer.get(playerId);
+        Set<Material> excludedInputs = excludedPackInputsByPlayer.get(playerId);
         return excludedInputs != null && excludedInputs.contains(material);
     }
 
-    public boolean isCondenseInputExcludedNextRun(final UUID playerId, final Material material) {
+    public boolean isPackInputExcludedNextRun(final UUID playerId, final Material material) {
         if (playerId == null || material == null) {
             return false;
         }
 
-        Set<Material> excludedInputs = nextRunExcludedCondenseInputsByPlayer.get(playerId);
+        Set<Material> excludedInputs = nextRunExcludedPackInputsByPlayer.get(playerId);
         return excludedInputs != null && excludedInputs.contains(material);
     }
 
-    public boolean isCondenseInputExcludedForRun(final UUID playerId, final Material material) {
-        return isCondenseInputExcluded(playerId, material)
-                || isCondenseInputExcludedNextRun(playerId, material);
+    public boolean isPackInputExcludedForRun(final UUID playerId, final Material material) {
+        return isPackInputExcluded(playerId, material)
+                || isPackInputExcludedNextRun(playerId, material);
     }
 
-    public Set<Material> getCondenseInputExcludedPersistentSnapshot(final UUID playerId) {
-        return copyMaterialSet(excludedCondenseInputsByPlayer.get(playerId));
+    public Set<Material> getPackInputExcludedPersistentSnapshot(final UUID playerId) {
+        return copyMaterialSet(excludedPackInputsByPlayer.get(playerId));
     }
 
-    public Set<Material> getCondenseInputExcludedNextRunSnapshot(final UUID playerId) {
-        return copyMaterialSet(nextRunExcludedCondenseInputsByPlayer.get(playerId));
+    public Set<Material> getPackInputExcludedNextRunSnapshot(final UUID playerId) {
+        return copyMaterialSet(nextRunExcludedPackInputsByPlayer.get(playerId));
     }
 
-    public boolean toggleCondenseInputExcluded(final UUID playerId, final Material material) {
-        return setCondenseInputExcluded(playerId, material, !isCondenseInputExcluded(playerId, material));
+    public boolean togglePackInputExcluded(final UUID playerId, final Material material) {
+        return setPackInputExcluded(playerId, material, !isPackInputExcluded(playerId, material));
     }
 
-    public boolean setCondenseInputExcluded(final UUID playerId, final Material material, final boolean excluded) {
+    public boolean setPackInputExcluded(final UUID playerId, final Material material, final boolean excluded) {
         if (playerId == null || material == null) {
             return false;
         }
 
-        Set<Material> excludedInputs = excludedCondenseInputsByPlayer.computeIfAbsent(
+        Set<Material> excludedInputs = excludedPackInputsByPlayer.computeIfAbsent(
                 playerId,
                 ignored -> EnumSet.noneOf(Material.class)
         );
@@ -171,13 +170,13 @@ public final class SmartPack extends JavaPlugin {
         }
 
         if (excludedInputs.isEmpty()) {
-            excludedCondenseInputsByPlayer.remove(playerId);
+            excludedPackInputsByPlayer.remove(playerId);
         }
 
         return excluded;
     }
 
-    public void saveCondenseInputExcludedPersistentAsync(final UUID playerId) {
+    public void savePackInputExcludedPersistentAsync(final UUID playerId) {
         if (playerId == null) {
             return;
         }
@@ -189,51 +188,51 @@ public final class SmartPack extends JavaPlugin {
 
         playerExclusionStore.replacePersistentExclusionsAsync(
                 playerId,
-                getCondenseInputExcludedPersistentSnapshot(playerId)
+                getPackInputExcludedPersistentSnapshot(playerId)
         );
     }
 
-    public boolean isAutoCondenseEnabledForPlayer(final UUID playerId) {
+    public boolean isAutoPackEnabledForPlayer(final UUID playerId) {
         if (playerId == null) {
             return false;
         }
 
-        return autoCondenseEnabledByPlayer.getOrDefault(
+        return autoPackEnabledByPlayer.getOrDefault(
                 playerId,
                 getConfig().getBoolean("auto_pack.default_enabled", true)
         );
     }
 
-    public boolean toggleAutoCondenseEnabledForPlayer(final UUID playerId) {
-        return setAutoCondenseEnabledForPlayer(playerId, !isAutoCondenseEnabledForPlayer(playerId));
+    public boolean toggleAutoPackEnabledForPlayer(final UUID playerId) {
+        return setAutoPackEnabledForPlayer(playerId, !isAutoPackEnabledForPlayer(playerId));
     }
 
-    public boolean setAutoCondenseEnabledForPlayer(final UUID playerId, final boolean enabled) {
+    public boolean setAutoPackEnabledForPlayer(final UUID playerId, final boolean enabled) {
         if (playerId == null) {
             return false;
         }
 
-        autoCondenseEnabledByPlayer.put(playerId, enabled);
+        autoPackEnabledByPlayer.put(playerId, enabled);
 
         if (playerExclusionStore == null) {
             getLogger().warning("Persistent exclusion store is not available.");
             return enabled;
         }
 
-        playerExclusionStore.setAutoCondenseEnabledAsync(playerId, enabled);
+        playerExclusionStore.setAutoPackEnabledAsync(playerId, enabled);
         return enabled;
     }
 
-    public boolean toggleCondenseInputExcludedNextRun(final UUID playerId, final Material material) {
-        return setCondenseInputExcludedNextRun(playerId, material, !isCondenseInputExcludedNextRun(playerId, material));
+    public boolean togglePackInputExcludedNextRun(final UUID playerId, final Material material) {
+        return setPackInputExcludedNextRun(playerId, material, !isPackInputExcludedNextRun(playerId, material));
     }
 
-    public boolean setCondenseInputExcludedNextRun(final UUID playerId, final Material material, final boolean excluded) {
+    public boolean setPackInputExcludedNextRun(final UUID playerId, final Material material, final boolean excluded) {
         if (playerId == null || material == null) {
             return false;
         }
 
-        Set<Material> excludedInputs = nextRunExcludedCondenseInputsByPlayer.computeIfAbsent(
+        Set<Material> excludedInputs = nextRunExcludedPackInputsByPlayer.computeIfAbsent(
                 playerId,
                 ignored -> EnumSet.noneOf(Material.class)
         );
@@ -247,37 +246,37 @@ public final class SmartPack extends JavaPlugin {
         }
 
         if (excludedInputs.isEmpty()) {
-            nextRunExcludedCondenseInputsByPlayer.remove(playerId);
+            nextRunExcludedPackInputsByPlayer.remove(playerId);
         }
 
         return excluded;
     }
 
-    public void clearCondenseInputExcludedNextRun(final UUID playerId, final Material material) {
+    public void clearPackInputExcludedNextRun(final UUID playerId, final Material material) {
         if (playerId == null || material == null) {
             return;
         }
 
-        Set<Material> excludedInputs = nextRunExcludedCondenseInputsByPlayer.get(playerId);
+        Set<Material> excludedInputs = nextRunExcludedPackInputsByPlayer.get(playerId);
         if (excludedInputs == null) {
             return;
         }
 
         excludedInputs.remove(material);
         if (excludedInputs.isEmpty()) {
-            nextRunExcludedCondenseInputsByPlayer.remove(playerId);
+            nextRunExcludedPackInputsByPlayer.remove(playerId);
         }
     }
 
-    public void clearAllCondenseInputsExcludedNextRun(final UUID playerId) {
+    public void clearAllPackInputsExcludedNextRun(final UUID playerId) {
         if (playerId == null) {
             return;
         }
 
-        nextRunExcludedCondenseInputsByPlayer.remove(playerId);
+        nextRunExcludedPackInputsByPlayer.remove(playerId);
     }
 
-    public boolean replaceCondenseInputExcludedPersistent(
+    public boolean replacePackInputExcludedPersistent(
             final UUID playerId,
             final Set<Material> materials
     ) {
@@ -288,15 +287,15 @@ public final class SmartPack extends JavaPlugin {
         Set<Material> sanitized = sanitizeMaterialSet(materials);
 
         if (sanitized.isEmpty()) {
-            excludedCondenseInputsByPlayer.remove(playerId);
+            excludedPackInputsByPlayer.remove(playerId);
         } else {
-            excludedCondenseInputsByPlayer.put(playerId, sanitized);
+            excludedPackInputsByPlayer.put(playerId, sanitized);
         }
 
         return true;
     }
 
-    public void replaceCondenseInputExcludedNextRun(
+    public void replacePackInputExcludedNextRun(
             final UUID playerId,
             final Set<Material> materials
     ) {
@@ -306,14 +305,14 @@ public final class SmartPack extends JavaPlugin {
 
         Set<Material> sanitized = sanitizeMaterialSet(materials);
         if (sanitized.isEmpty()) {
-            nextRunExcludedCondenseInputsByPlayer.remove(playerId);
+            nextRunExcludedPackInputsByPlayer.remove(playerId);
         } else {
-            nextRunExcludedCondenseInputsByPlayer.put(playerId, sanitized);
+            nextRunExcludedPackInputsByPlayer.put(playerId, sanitized);
         }
     }
 
     private void reloadPersistentExclusionsFromStore() {
-        excludedCondenseInputsByPlayer.clear();
+        excludedPackInputsByPlayer.clear();
 
         if (playerExclusionStore == null) {
             return;
@@ -321,15 +320,15 @@ public final class SmartPack extends JavaPlugin {
 
         try {
             playerExclusionStore.flushPendingWrites();
-            excludedCondenseInputsByPlayer.putAll(playerExclusionStore.loadPersistentExclusions());
+            excludedPackInputsByPlayer.putAll(playerExclusionStore.loadPersistentExclusions());
         } catch (Exception ex) {
             getLogger().severe("Failed to load persistent SQLite exclusions: " + ex.getMessage());
             ex.printStackTrace();
         }
     }
 
-    private void reloadPersistentAutoCondensePreferencesFromStore() {
-        autoCondenseEnabledByPlayer.clear();
+    private void reloadPersistentAutoPackPreferencesFromStore() {
+        autoPackEnabledByPlayer.clear();
 
         if (playerExclusionStore == null) {
             return;
@@ -337,7 +336,7 @@ public final class SmartPack extends JavaPlugin {
 
         try {
             playerExclusionStore.flushPendingWrites();
-            autoCondenseEnabledByPlayer.putAll(playerExclusionStore.loadAutoCondensePreferences());
+            autoPackEnabledByPlayer.putAll(playerExclusionStore.loadAutoPackPreferences());
         } catch (Exception ex) {
             getLogger().severe("Failed to load persistent auto-pack preferences: " + ex.getMessage());
             ex.printStackTrace();
@@ -490,16 +489,6 @@ public final class SmartPack extends JavaPlugin {
             config.setDefaults(defaultConfig);
             config.options().copyDefaults(true);
 
-            if (existingVersion < 1) {
-                runConfigMigrationsFromPreV1(config);
-            }
-            if (existingVersion < 9) {
-                runConfigMigrationsFromPreV9(config);
-            }
-            if (existingVersion < 10) {
-                runConfigMigrationsFromPreV10(config);
-            }
-
             config.set("config-version", CURRENT_CONFIG_VERSION);
             saveConfig();
 
@@ -513,90 +502,11 @@ public final class SmartPack extends JavaPlugin {
         }
     }
 
-    private void runConfigMigrationsFromPreV1(final FileConfiguration config) {
-        if (!config.isSet("requirements.crafting_table_mode")) {
-            boolean requireCraftingTable = config.getBoolean("requirements.require_crafting_table", false);
-            boolean allowInventoryTable = config.getBoolean("requirements.allow_crafting_table_in_inventory", true);
-
-            String mode;
-            if (!requireCraftingTable) {
-                mode = "DISABLED";
-            } else if (allowInventoryTable) {
-                mode = "INVENTORY_OR_NEARBY";
-            } else {
-                mode = "NEARBY_ONLY";
-            }
-
-            config.set("requirements.crafting_table_mode", mode);
-
-            if (config.isSet("requirements.require_crafting_table")) {
-                config.set("requirements.require_crafting_table", null);
-            }
-            if (config.isSet("requirements.allow_crafting_table_in_inventory")) {
-                config.set("requirements.allow_crafting_table_in_inventory", null);
-            }
-
-            getLogger().info("Migrated legacy crafting table settings to requirements.crafting_table_mode.");
-        }
-    }
-
     private void validateConfig() {
-        disabledCondenseInputs.clear();
+        disabledPackInputs.clear();
         validateActivationMode();
         validateCraftingTableMode();
-        validateCondenseRecipes();
-    }
-
-    private void runConfigMigrationsFromPreV9(final FileConfiguration config) {
-        String activationMode = config.getString("activation.mode");
-        if ("CONDENSER_ITEM".equalsIgnoreCase(activationMode)) {
-            config.set("activation.mode", "SMART_PACKER_ITEM");
-            getLogger().info("Migrated activation.mode from CONDENSER_ITEM to SMART_PACKER_ITEM.");
-        }
-
-        migrateConfigSection(config, "activation.condenser_item", "activation.smart_packer_item");
-        migrateConfigValue(config, "auto_condense.modes.condenser_item", "auto_condense.modes.smart_packer_item");
-        migrateConfigSection(config, "auto_condense.condenser_item", "auto_condense.smart_packer_item");
-        migrateConfigValue(config, "message.info.use_condenser_item", "message.info.use_smart_packer_item");
-        migrateConfigValue(config, "message.error.condenser_item_required", "message.error.smart_packer_item_required");
-    }
-
-    private void runConfigMigrationsFromPreV10(final FileConfiguration config) {
-        migrateConfigSection(config, "condense", "pack");
-        migrateConfigSection(config, "auto_condense", "auto_pack");
-        migrateConfigSection(config, "message.condense", "message.pack");
-        migrateConfigSection(config, "message.auto_condense", "message.auto_pack");
-        migrateConfigValue(config, "message.info.auto_condense_enabled", "message.info.auto_pack_enabled");
-        migrateConfigValue(config, "message.info.auto_condense_disabled", "message.info.auto_pack_disabled");
-        migrateConfigValue(config, "message.info.auto_condense_unavailable", "message.info.auto_pack_unavailable");
-        migrateConfigValue(config, "message.error.nothing_to_condense", "message.error.nothing_to_pack");
-    }
-
-    private void migrateConfigSection(final FileConfiguration config, final String oldPath, final String newPath) {
-        ConfigurationSection oldSection = config.getConfigurationSection(oldPath);
-        if (oldSection == null) {
-            return;
-        }
-
-        for (String key : oldSection.getKeys(true)) {
-            if (!oldSection.isConfigurationSection(key)) {
-                config.set(newPath + "." + key, oldSection.get(key));
-            }
-        }
-
-        config.set(oldPath, null);
-        getLogger().info("Migrated config section " + oldPath + " to " + newPath + ".");
-    }
-
-    private void migrateConfigValue(final FileConfiguration config, final String oldPath, final String newPath) {
-        if (!config.isSet(oldPath)) {
-            return;
-        }
-
-        config.set(newPath, config.get(oldPath));
-
-        config.set(oldPath, null);
-        getLogger().info("Migrated config value " + oldPath + " to " + newPath + ".");
+        validatePackRecipes();
     }
 
     private void validateActivationMode() {
@@ -630,9 +540,9 @@ public final class SmartPack extends JavaPlugin {
         }
     }
 
-    private void validateCondenseRecipes() {
-        ConfigurationSection condenseSection = getConfig().getConfigurationSection("pack");
-        if (condenseSection == null) {
+    private void validatePackRecipes() {
+        ConfigurationSection packSection = getConfig().getConfigurationSection("pack");
+        if (packSection == null) {
             getLogger().warning("Config warning: missing 'pack' section in config.yml");
             return;
         }
@@ -640,8 +550,8 @@ public final class SmartPack extends JavaPlugin {
         boolean warnIfNotReversible = getConfig().getBoolean("validation.warn_if_not_reversible", true);
         boolean disableNonReversible = getConfig().getBoolean("validation.disable_non_reversible_recipes", false);
 
-        for (String inputKey : condenseSection.getKeys(false)) {
-            ConfigurationSection rule = condenseSection.getConfigurationSection(inputKey);
+        for (String inputKey : packSection.getKeys(false)) {
+            ConfigurationSection rule = packSection.getConfigurationSection(inputKey);
 
             if (rule == null) {
                 getLogger().warning("Config warning: pack entry '" + inputKey + "' is not a valid section.");
@@ -690,14 +600,14 @@ public final class SmartPack extends JavaPlugin {
             }
 
             if (!reversible && disableNonReversible) {
-                disabledCondenseInputs.add(input);
+                disabledPackInputs.add(input);
                 getLogger().warning("Config warning: disabling non-reversible pack recipe for input '" + input + "'.");
             }
         }
 
-        if (!disabledCondenseInputs.isEmpty()) {
-            getLogger().warning("Disabled " + disabledCondenseInputs.size()
-                    + " non-reversible pack recipe(s): " + disabledCondenseInputs);
+        if (!disabledPackInputs.isEmpty()) {
+            getLogger().warning("Disabled " + disabledPackInputs.size()
+                    + " non-reversible pack recipe(s): " + disabledPackInputs);
         }
     }
 

@@ -60,14 +60,14 @@ public final class PackCommand implements TabExecutor, Listener {
     private static final int EXCLUDE_MENU_NEXT_SLOT = 50;
     private static final int EXCLUDE_MENU_APPLY_SLOT = 52;
     private static final int EXCLUDE_MENU_CANCEL_SLOT = 53;
-    private static final long CONDENSE_PASS_DELAY_TICKS = 1L;
-    private static final int CONDENSE_SETTLE_TICKS = 10;
+    private static final long PACK_PASS_DELAY_TICKS = 1L;
+    private static final int PACK_SETTLE_TICKS = 10;
 
     private final SmartPack plugin;
     private final Map<UUID, ExcludeMenuSession> excludeMenuSessions = new HashMap<>();
-    private final Set<UUID> condenseInProgress = new HashSet<>();
-    private final Set<UUID> pendingAutoCondense = new HashSet<>();
-    private final Map<UUID, Long> lastAutoCondenseTicks = new HashMap<>();
+    private final Set<UUID> packInProgress = new HashSet<>();
+    private final Set<UUID> pendingAutoPack = new HashSet<>();
+    private final Map<UUID, Long> lastAutoPackTicks = new HashMap<>();
     private final Map<UUID, Long> lastAutoInventoryFullMessageTicks = new HashMap<>();
 
     public PackCommand(final SmartPack plugin) {
@@ -123,13 +123,13 @@ public final class PackCommand implements TabExecutor, Listener {
                     return true;
                 }
 
-                if (!isAutoCondenseAvailableInCurrentMode()) {
-                    sendAutoCondenseUnavailable(player);
+                if (!isAutoPackAvailableInCurrentMode()) {
+                    sendAutoPackUnavailable(player);
                     return true;
                 }
 
-                boolean enabled = plugin.toggleAutoCondenseEnabledForPlayer(player.getUniqueId());
-                sendAutoCondenseToggleMessage(player, enabled);
+                boolean enabled = plugin.toggleAutoPackEnabledForPlayer(player.getUniqueId());
+                sendAutoPackToggleMessage(player, enabled);
                 return true;
             }
         }
@@ -157,7 +157,7 @@ public final class PackCommand implements TabExecutor, Listener {
             }
         }
 
-        executeCondense(player, CondenseRequest.manual());
+        executePack(player, PackRequest.manual());
         return true;
     }
 
@@ -190,14 +190,14 @@ public final class PackCommand implements TabExecutor, Listener {
 
         event.setCancelled(true);
 
-        boolean enableAutoCondense = event.getClick().isShiftClick();
+        boolean enableAutoPack = event.getClick().isShiftClick();
         Bukkit.getScheduler().runTask(plugin, () -> {
             if (!player.isOnline()) {
                 return;
             }
 
-            if (enableAutoCondense) {
-                enableAutoCondenseFromSmartPackerItem(player);
+            if (enableAutoPack) {
+                enableAutoPackFromSmartPackerItem(player);
                 return;
             }
 
@@ -209,7 +209,7 @@ public final class PackCommand implements TabExecutor, Listener {
                 return;
             }
 
-            executeCondense(player);
+            executePack(player);
         });
     }
 
@@ -219,7 +219,7 @@ public final class PackCommand implements TabExecutor, Listener {
             return;
         }
 
-        queueAutoCondense(player, AutoCondenseTrigger.PICKUP);
+        queueAutoPack(player, AutoPackTrigger.PICKUP);
     }
 
     @EventHandler(ignoreCancelled = true)
@@ -259,9 +259,9 @@ public final class PackCommand implements TabExecutor, Listener {
             if (event.getBlockPlaced().getType() == Material.CRAFTING_TABLE
                     && shouldCheckNearbyCraftingTableAutoTrigger(
                             event.getPlayer(),
-                            AutoCondenseTrigger.CRAFTING_TABLE_PLACE
+                            AutoPackTrigger.CRAFTING_TABLE_PLACE
                     )) {
-                queueAutoCondense(event.getPlayer(), AutoCondenseTrigger.CRAFTING_TABLE_PLACE);
+                queueAutoPack(event.getPlayer(), AutoPackTrigger.CRAFTING_TABLE_PLACE);
             }
             return;
         }
@@ -278,7 +278,7 @@ public final class PackCommand implements TabExecutor, Listener {
         }
 
         Player player = event.getPlayer();
-        if (!shouldCheckNearbyCraftingTableAutoTrigger(player, AutoCondenseTrigger.CRAFTING_TABLE_NEARBY)) {
+        if (!shouldCheckNearbyCraftingTableAutoTrigger(player, AutoPackTrigger.CRAFTING_TABLE_NEARBY)) {
             return;
         }
 
@@ -287,52 +287,52 @@ public final class PackCommand implements TabExecutor, Listener {
             return;
         }
 
-        queueAutoCondense(player, AutoCondenseTrigger.CRAFTING_TABLE_NEARBY);
+        queueAutoPack(player, AutoPackTrigger.CRAFTING_TABLE_NEARBY);
     }
 
     @EventHandler
     public void onPlayerJoin(final PlayerJoinEvent event) {
         plugin.cleanupSmartPackerItems(event.getPlayer());
-        queueAutoCondense(event.getPlayer(), AutoCondenseTrigger.JOIN);
+        queueAutoPack(event.getPlayer(), AutoPackTrigger.JOIN);
     }
 
     @EventHandler
     public void onPlayerQuit(final PlayerQuitEvent event) {
         UUID playerId = event.getPlayer().getUniqueId();
-        pendingAutoCondense.remove(playerId);
-        lastAutoCondenseTicks.remove(playerId);
+        pendingAutoPack.remove(playerId);
+        lastAutoPackTicks.remove(playerId);
         lastAutoInventoryFullMessageTicks.remove(playerId);
     }
 
-    public void executeCondense(final Player player) {
-        executeCondense(player, CondenseRequest.manual());
+    public void executePack(final Player player) {
+        executePack(player, PackRequest.manual());
     }
 
-    public void executeAutoCondense(final Player player) {
-        executeCondense(player, CondenseRequest.auto());
+    public void executeAutoPack(final Player player) {
+        executePack(player, PackRequest.auto());
     }
 
-    private void executeCondense(final Player player, final CondenseRequest request) {
+    private void executePack(final Player player, final PackRequest request) {
         UUID playerId = player.getUniqueId();
 
-        if (!condenseInProgress.add(playerId)) {
+        if (!packInProgress.add(playerId)) {
             if (!request.automatic()) {
                 player.sendMessage(Component.text("SmartPack is already running.", NamedTextColor.YELLOW));
             }
             return;
         }
 
-        continueCondenseExecution(playerId, new CondenseExecution(), request);
+        continuePackExecution(playerId, new PackExecution(), request);
     }
 
-    private void continueCondenseExecution(
+    private void continuePackExecution(
             final UUID playerId,
-            final CondenseExecution execution,
-            final CondenseRequest request
+            final PackExecution execution,
+            final PackRequest request
     ) {
         Player player = Bukkit.getPlayer(playerId);
         if (player == null || !player.isOnline()) {
-            cleanupCondenseExecution(playerId);
+            cleanupPackExecution(playerId);
             return;
         }
 
@@ -342,54 +342,54 @@ public final class PackCommand implements TabExecutor, Listener {
                 if (!request.automatic()) {
                     player.sendMessage(craftingState.failureMessage());
                 }
-                cleanupCondenseExecution(playerId);
+                cleanupPackExecution(playerId);
                 return;
             }
 
-            CondenseResult result = condense(player, craftingState, execution, request);
+            PackResult result = pack(player, craftingState, execution, request);
             execution.merge(result);
 
             if (result.totalProduced() > 0 || result.inventoryChangedDuringRun()) {
                 execution.resetSettleTicks();
-                scheduleNextCondenseExecution(playerId, execution, request);
+                scheduleNextPackExecution(playerId, execution, request);
                 return;
             }
 
             if (execution.shouldWaitForInventoryToSettle()) {
                 execution.consumeSettleTick();
-                scheduleNextCondenseExecution(playerId, execution, request);
+                scheduleNextPackExecution(playerId, execution, request);
                 return;
             }
 
-            finishCondenseExecution(player, craftingState, execution, result, request);
+            finishPackExecution(player, craftingState, execution, result, request);
         } catch (RuntimeException exception) {
-            cleanupCondenseExecution(playerId);
+            cleanupPackExecution(playerId);
             throw exception;
         }
     }
 
-    private void scheduleNextCondenseExecution(
+    private void scheduleNextPackExecution(
             final UUID playerId,
-            final CondenseExecution execution,
-            final CondenseRequest request
+            final PackExecution execution,
+            final PackRequest request
     ) {
         Bukkit.getScheduler().runTaskLater(
                 plugin,
-                () -> continueCondenseExecution(playerId, execution, request),
-                CONDENSE_PASS_DELAY_TICKS
+                () -> continuePackExecution(playerId, execution, request),
+                PACK_PASS_DELAY_TICKS
         );
     }
 
-    private void finishCondenseExecution(
+    private void finishPackExecution(
             final Player player,
             final CraftingRequirementState craftingState,
-            final CondenseExecution execution,
-            final CondenseResult finalResult,
-            final CondenseRequest request
+            final PackExecution execution,
+            final PackResult finalResult,
+            final PackRequest request
     ) {
         try {
             if (request.automatic()) {
-                sendAutoCondenseFeedback(player, execution, finalResult);
+                sendAutoPackFeedback(player, execution, finalResult);
                 return;
             }
 
@@ -420,13 +420,13 @@ public final class PackCommand implements TabExecutor, Listener {
             }
 
             Map<Material, OriginSummary> originSummaries = execution.buildOriginSummaries();
-            sendCondenseListMessages(player, originSummaries);
+            sendPackListMessages(player, originSummaries);
 
             int totalInputCount = countOriginSummaryInputs(originSummaries);
             int totalOutputCount = countOriginSummaryOutputs(originSummaries);
-            String condensedItems = formatMaterialTotals(buildCombinedOriginTotals(originSummaries));
+            String packedItems = formatMaterialTotals(buildCombinedOriginTotals(originSummaries));
 
-            String message = buildCondenseSummaryMessage(totalInputCount, totalOutputCount, condensedItems);
+            String message = buildPackSummaryMessage(totalInputCount, totalOutputCount, packedItems);
 
             player.sendMessage(message);
 
@@ -445,44 +445,44 @@ public final class PackCommand implements TabExecutor, Listener {
 
             sendSkippedExcludedMaterialsMessage(player, finalResult.skippedMaterials());
         } finally {
-            cleanupCondenseExecution(player.getUniqueId());
+            cleanupPackExecution(player.getUniqueId());
         }
     }
 
-    private void cleanupCondenseExecution(final UUID playerId) {
-        condenseInProgress.remove(playerId);
-        plugin.clearAllCondenseInputsExcludedNextRun(playerId);
+    private void cleanupPackExecution(final UUID playerId) {
+        packInProgress.remove(playerId);
+        plugin.clearAllPackInputsExcludedNextRun(playerId);
     }
 
-    private void queueAutoCondense(final Player player, final AutoCondenseTrigger trigger) {
-        if (player == null || !isAutoCondenseTriggerEnabled(trigger) || !canAutoCondense(player)) {
+    private void queueAutoPack(final Player player, final AutoPackTrigger trigger) {
+        if (player == null || !isAutoPackTriggerEnabled(trigger) || !canAutoPack(player)) {
             return;
         }
 
         UUID playerId = player.getUniqueId();
-        if (!pendingAutoCondense.add(playerId)) {
+        if (!pendingAutoPack.add(playerId)) {
             return;
         }
 
         long delayTicks = Math.max(1L, plugin.getConfig().getLong("auto_pack.delay_ticks", 2L));
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            pendingAutoCondense.remove(playerId);
+            pendingAutoPack.remove(playerId);
 
             Player onlinePlayer = Bukkit.getPlayer(playerId);
-            if (onlinePlayer == null || !onlinePlayer.isOnline() || !canAutoCondense(onlinePlayer)) {
+            if (onlinePlayer == null || !onlinePlayer.isOnline() || !canAutoPack(onlinePlayer)) {
                 return;
             }
 
-            if (isAutoCondenseCoolingDown(playerId)) {
+            if (isAutoPackCoolingDown(playerId)) {
                 return;
             }
 
-            markAutoCondenseRun(playerId);
-            executeAutoCondense(onlinePlayer);
+            markAutoPackRun(playerId);
+            executeAutoPack(onlinePlayer);
         }, delayTicks);
     }
 
-    private boolean isAutoCondenseTriggerEnabled(final AutoCondenseTrigger trigger) {
+    private boolean isAutoPackTriggerEnabled(final AutoPackTrigger trigger) {
         if (!plugin.getConfig().getBoolean("auto_pack.enabled", false)) {
             return false;
         }
@@ -490,12 +490,12 @@ public final class PackCommand implements TabExecutor, Listener {
         return plugin.getConfig().getBoolean("auto_pack.triggers." + trigger.configKey(), trigger.defaultEnabled());
     }
 
-    private boolean canAutoCondense(final Player player) {
+    private boolean canAutoPack(final Player player) {
         if (!plugin.getConfig().getBoolean("auto_pack.enabled", false)) {
             return false;
         }
 
-        if (!plugin.isAutoCondenseEnabledForPlayer(player.getUniqueId())) {
+        if (!plugin.isAutoPackEnabledForPlayer(player.getUniqueId())) {
             return false;
         }
 
@@ -517,13 +517,13 @@ public final class PackCommand implements TabExecutor, Listener {
 
     private boolean shouldCheckNearbyCraftingTableAutoTrigger(
             final Player player,
-            final AutoCondenseTrigger trigger
+            final AutoPackTrigger trigger
     ) {
         if (plugin.isSmartPackerItemModeEnabled()) {
             return false;
         }
 
-        if (!isAutoCondenseTriggerEnabled(trigger) || !canAutoCondense(player)) {
+        if (!isAutoPackTriggerEnabled(trigger) || !canAutoPack(player)) {
             return false;
         }
 
@@ -539,7 +539,7 @@ public final class PackCommand implements TabExecutor, Listener {
         return false;
     }
 
-    private void enableAutoCondenseFromSmartPackerItem(final Player player) {
+    private void enableAutoPackFromSmartPackerItem(final Player player) {
         if (!player.hasPermission("smartpack.use") || !player.hasPermission("smartpack.auto")) {
             player.sendMessage(getMessage(
                     "message.error.no_permission",
@@ -548,19 +548,19 @@ public final class PackCommand implements TabExecutor, Listener {
             return;
         }
 
-        if (!isAutoCondenseAvailableInCurrentMode()) {
-            sendAutoCondenseUnavailable(player);
+        if (!isAutoPackAvailableInCurrentMode()) {
+            sendAutoPackUnavailable(player);
             return;
         }
 
-        plugin.setAutoCondenseEnabledForPlayer(player.getUniqueId(), true);
+        plugin.setAutoPackEnabledForPlayer(player.getUniqueId(), true);
         player.sendMessage(getMessage(
                 "message.info.auto_pack_enabled",
                 "Auto-pack enabled."
         ));
     }
 
-    private boolean isAutoCondenseAvailableInCurrentMode() {
+    private boolean isAutoPackAvailableInCurrentMode() {
         if (!plugin.getConfig().getBoolean("auto_pack.enabled", false)) {
             return false;
         }
@@ -572,14 +572,14 @@ public final class PackCommand implements TabExecutor, Listener {
         return plugin.getConfig().getBoolean("auto_pack.modes.command", true);
     }
 
-    private void sendAutoCondenseUnavailable(final Player player) {
+    private void sendAutoPackUnavailable(final Player player) {
         player.sendMessage(getMessage(
                 "message.info.auto_pack_unavailable",
                 "Auto-pack is disabled on this server."
         ));
     }
 
-    private void sendAutoCondenseToggleMessage(final Player player, final boolean enabled) {
+    private void sendAutoPackToggleMessage(final Player player, final boolean enabled) {
         String messagePath = enabled
                 ? "message.info.auto_pack_enabled"
                 : "message.info.auto_pack_disabled";
@@ -590,19 +590,19 @@ public final class PackCommand implements TabExecutor, Listener {
         player.sendMessage(getMessage(messagePath, fallback));
     }
 
-    private boolean isAutoCondenseCoolingDown(final UUID playerId) {
+    private boolean isAutoPackCoolingDown(final UUID playerId) {
         long cooldownTicks = Math.max(0L, plugin.getConfig().getLong("auto_pack.cooldown_ticks", 10L));
         if (cooldownTicks <= 0L) {
             return false;
         }
 
         long currentTick = Bukkit.getCurrentTick();
-        Long lastRunTick = lastAutoCondenseTicks.get(playerId);
+        Long lastRunTick = lastAutoPackTicks.get(playerId);
         return lastRunTick != null && currentTick - lastRunTick < cooldownTicks;
     }
 
-    private void markAutoCondenseRun(final UUID playerId) {
-        lastAutoCondenseTicks.put(playerId, (long) Bukkit.getCurrentTick());
+    private void markAutoPackRun(final UUID playerId) {
+        lastAutoPackTicks.put(playerId, (long) Bukkit.getCurrentTick());
     }
 
     @Override
@@ -817,17 +817,17 @@ public final class PackCommand implements TabExecutor, Listener {
         };
     }
 
-    private CondenseResult condense(
+    private PackResult pack(
             final Player player,
             final CraftingRequirementState craftingState,
-            final CondenseExecution execution,
-            final CondenseRequest request
+            final PackExecution execution,
+            final PackRequest request
     ) {
         PlayerInventory inventory = player.getInventory();
-        ConfigurationSection condenseSection = plugin.getConfig().getConfigurationSection("pack");
-        if (condenseSection == null) {
+        ConfigurationSection packSection = plugin.getConfig().getConfigurationSection("pack");
+        if (packSection == null) {
             plugin.getLogger().warning("Missing 'pack' section in config.yml");
-            return new CondenseResult(
+            return new PackResult(
                     0,
                     false,
                     false,
@@ -841,7 +841,7 @@ public final class PackCommand implements TabExecutor, Listener {
 
         execution.syncTrackedInventory(
                 countContentsByMaterial(inventory.getStorageContents()),
-                collectTrackableInputMaterials(player.getUniqueId(), condenseSection)
+                collectTrackableInputMaterials(player.getUniqueId(), packSection)
         );
 
         int totalProduced = 0;
@@ -851,10 +851,10 @@ public final class PackCommand implements TabExecutor, Listener {
         boolean inventoryChangedDuringRun = false;
 
         while (true) {
-            PassResult passResult = runCondensePass(
+            PassResult passResult = runPackPass(
                     player,
                     inventory,
-                    condenseSection,
+                    packSection,
                     craftingState,
                     execution,
                     request
@@ -875,16 +875,16 @@ public final class PackCommand implements TabExecutor, Listener {
                 player,
                 player.getUniqueId(),
                 inventory,
-                condenseSection,
+                packSection,
                 craftingState
         );
         List<SkippedMaterial> skippedMaterials = collectSkippedExcludedMaterialsForRun(
                 player.getUniqueId(),
                 inventory,
-                condenseSection
+                packSection
         );
 
-        return new CondenseResult(
+        return new PackResult(
                 totalProduced,
                 hadValidAttempt,
                 blockedByCraftingRequirement,
@@ -896,13 +896,13 @@ public final class PackCommand implements TabExecutor, Listener {
         );
     }
 
-    private PassResult runCondensePass(
+    private PassResult runPackPass(
             final Player player,
             final PlayerInventory inventory,
-            final ConfigurationSection condenseSection,
+            final ConfigurationSection packSection,
             final CraftingRequirementState craftingState,
-            final CondenseExecution execution,
-            final CondenseRequest request
+            final PackExecution execution,
+            final PackRequest request
     ) {
         Map<Material, Integer> itemCounts = countContentsByMaterial(inventory.getStorageContents());
 
@@ -913,8 +913,8 @@ public final class PackCommand implements TabExecutor, Listener {
         boolean usedSmallRecipeBypass = false;
         boolean inventoryChangedDuringPass = false;
 
-        for (String key : condenseSection.getKeys(false)) {
-            ConfigurationSection rule = condenseSection.getConfigurationSection(key);
+        for (String key : packSection.getKeys(false)) {
+            ConfigurationSection rule = packSection.getConfigurationSection(key);
             if (rule == null) {
                 plugin.getLogger().warning("Invalid pack rule section: " + key);
                 continue;
@@ -926,8 +926,8 @@ public final class PackCommand implements TabExecutor, Listener {
                 continue;
             }
 
-            if (plugin.isCondenseInputDisabled(input)
-                    || plugin.isCondenseInputExcludedForRun(player.getUniqueId(), input)) {
+            if (plugin.isPackInputDisabled(input)
+                    || plugin.isPackInputExcludedForRun(player.getUniqueId(), input)) {
                 continue;
             }
 
@@ -972,7 +972,7 @@ public final class PackCommand implements TabExecutor, Listener {
                 continue;
             }
 
-            AttemptResult attempt = tryCondense(
+            AttemptResult attempt = tryPack(
                     player,
                     inventory,
                     input,
@@ -1022,23 +1022,23 @@ public final class PackCommand implements TabExecutor, Listener {
             final Player player,
             final UUID playerId,
             final PlayerInventory inventory,
-            final ConfigurationSection condenseSection,
+            final ConfigurationSection packSection,
             final CraftingRequirementState craftingState
     ) {
         Map<Material, Integer> itemCounts = countContentsByMaterial(inventory.getStorageContents());
 
         Map<Material, InventoryFailure> failures = new EnumMap<>(Material.class);
 
-        for (String key : condenseSection.getKeys(false)) {
-            ConfigurationSection rule = condenseSection.getConfigurationSection(key);
+        for (String key : packSection.getKeys(false)) {
+            ConfigurationSection rule = packSection.getConfigurationSection(key);
             if (rule == null) {
                 continue;
             }
 
             Material input = Material.matchMaterial(key);
             if (input == null
-                    || plugin.isCondenseInputDisabled(input)
-                    || plugin.isCondenseInputExcludedForRun(playerId, input)) {
+                    || plugin.isPackInputDisabled(input)
+                    || plugin.isPackInputExcludedForRun(playerId, input)) {
                 continue;
             }
 
@@ -1060,7 +1060,7 @@ public final class PackCommand implements TabExecutor, Listener {
                 continue;
             }
 
-            AttemptResult attempt = tryCondense(
+            AttemptResult attempt = tryPack(
                     null,
                     inventory,
                     input,
@@ -1090,11 +1090,11 @@ public final class PackCommand implements TabExecutor, Listener {
 
         int totalAdditionalSlotsNeeded = failures.isEmpty()
                 ? 0
-                : estimateAdditionalSlotsNeededForCondensedState(
+                : estimateAdditionalSlotsNeededForPackedState(
                         player,
                         playerId,
                         cloneContents(inventory.getStorageContents()),
-                        condenseSection,
+                        packSection,
                         craftingState
                 );
 
@@ -1104,16 +1104,16 @@ public final class PackCommand implements TabExecutor, Listener {
     private List<SkippedMaterial> collectSkippedExcludedMaterialsForRun(
             final UUID playerId,
             final PlayerInventory inventory,
-            final ConfigurationSection condenseSection
+            final ConfigurationSection packSection
     ) {
         Map<Material, Integer> itemCounts = countContentsByMaterial(inventory.getStorageContents());
 
         List<SkippedMaterial> skippedMaterials = new ArrayList<>();
-        for (String key : condenseSection.getKeys(false)) {
+        for (String key : packSection.getKeys(false)) {
             Material input = Material.matchMaterial(key);
             if (input == null
-                    || plugin.isCondenseInputDisabled(input)
-                    || !plugin.isCondenseInputExcludedForRun(playerId, input)) {
+                    || plugin.isPackInputDisabled(input)
+                    || !plugin.isPackInputExcludedForRun(playerId, input)) {
                 continue;
             }
 
@@ -1129,7 +1129,7 @@ public final class PackCommand implements TabExecutor, Listener {
         return skippedMaterials;
     }
 
-    private AttemptResult tryCondense(
+    private AttemptResult tryPack(
             final Player player,
             final PlayerInventory inventory,
             final Material input,
@@ -1163,7 +1163,7 @@ public final class PackCommand implements TabExecutor, Listener {
 
             if (sendInventoryFullMessages && player != null && plugin.getConfig().getBoolean("display.list")) {
                 String fullInput = formatItemAmount(availableInput, input);
-                String result = formatCondenseResult(toProduce, output, leftoverInput, input);
+                String result = formatPackResult(toProduce, output, leftoverInput, input);
 
                 String message = getMessage(
                         "message.error.inventory_full",
@@ -1194,7 +1194,7 @@ public final class PackCommand implements TabExecutor, Listener {
 
         for (InventoryFailure failure : failures.values()) {
             String fullInput = formatItemAmount(failure.availableInput(), failure.inputMaterial());
-            String result = formatCondenseResult(
+            String result = formatPackResult(
                     failure.producedAmount(),
                     failure.producedMaterial(),
                     failure.leftoverInput(),
@@ -1213,7 +1213,7 @@ public final class PackCommand implements TabExecutor, Listener {
         }
     }
 
-    private void sendCondenseListMessages(
+    private void sendPackListMessages(
             final Player player,
             final Map<Material, OriginSummary> originSummaries
     ) {
@@ -1272,10 +1272,10 @@ public final class PackCommand implements TabExecutor, Listener {
         return combinedTotals;
     }
 
-    private String buildCondenseSummaryMessage(
+    private String buildPackSummaryMessage(
             final int totalInputCount,
             final int totalOutputCount,
-            final String condensedItems
+            final String packedItems
     ) {
         String message = getMessage("message.pack.summary", "Packed [input] items down to [output].");
         if (message.contains("[items]") && !message.contains("[input]") && !message.contains("[output]")) {
@@ -1285,7 +1285,7 @@ public final class PackCommand implements TabExecutor, Listener {
         return message
                 .replace("[input]", String.valueOf(totalInputCount))
                 .replace("[output]", String.valueOf(totalOutputCount))
-                .replace("[items]", condensedItems);
+                .replace("[items]", packedItems);
     }
 
     private void sendInventoryFullSummary(final Player player, final int totalAdditionalSlotsNeeded) {
@@ -1318,10 +1318,10 @@ public final class PackCommand implements TabExecutor, Listener {
         player.sendMessage(message);
     }
 
-    private void sendAutoCondenseFeedback(
+    private void sendAutoPackFeedback(
             final Player player,
-            final CondenseExecution execution,
-            final CondenseResult finalResult
+            final PackExecution execution,
+            final PackResult finalResult
     ) {
         boolean inventoryFull = finalResult.totalAdditionalSlotsNeeded() > 0;
         if (inventoryFull && plugin.getConfig().getBoolean(
@@ -1347,14 +1347,14 @@ public final class PackCommand implements TabExecutor, Listener {
         Map<Material, OriginSummary> originSummaries = execution.buildOriginSummaries();
         int totalInputCount = countOriginSummaryInputs(originSummaries);
         int totalOutputCount = countOriginSummaryOutputs(originSummaries);
-        String condensedItems = formatMaterialTotals(buildCombinedOriginTotals(originSummaries));
+        String packedItems = formatMaterialTotals(buildCombinedOriginTotals(originSummaries));
 
         String message = getMessage(
                 "message.auto_pack.actionbar",
                 "§aPacked into [items]."
         ).replace("[input]", String.valueOf(totalInputCount))
          .replace("[output]", String.valueOf(totalOutputCount))
-         .replace("[items]", condensedItems);
+         .replace("[items]", packedItems);
 
         sendActionBar(player, message);
     }
@@ -1390,12 +1390,12 @@ public final class PackCommand implements TabExecutor, Listener {
             final Player player,
             final ExcludeMenuSession session
     ) {
-        Set<Material> currentPersistent = plugin.getCondenseInputExcludedPersistentSnapshot(player.getUniqueId());
+        Set<Material> currentPersistent = plugin.getPackInputExcludedPersistentSnapshot(player.getUniqueId());
         if (currentPersistent.equals(session.initialPersistentExclusions())) {
             return;
         }
 
-        plugin.saveCondenseInputExcludedPersistentAsync(player.getUniqueId());
+        plugin.savePackInputExcludedPersistentAsync(player.getUniqueId());
     }
 
     private int calculateAdditionalSlotsNeeded(final Map<Integer, ItemStack> leftovers) {
@@ -1413,11 +1413,11 @@ public final class PackCommand implements TabExecutor, Listener {
         return additionalSlotsNeeded;
     }
 
-    private int estimateAdditionalSlotsNeededForCondensedState(
+    private int estimateAdditionalSlotsNeededForPackedState(
             final Player player,
             final UUID playerId,
             final ItemStack[] simulatedContents,
-            final ConfigurationSection condenseSection,
+            final ConfigurationSection packSection,
             final CraftingRequirementState craftingState
     ) {
         if (simulatedContents.length == 0) {
@@ -1426,7 +1426,7 @@ public final class PackCommand implements TabExecutor, Listener {
 
         Map<Material, Long> materialCounts = countContentsByMaterialLong(simulatedContents);
         mergeNearbyPickupMaterialCounts(player, materialCounts);
-        simulateCondensedMaterialCounts(playerId, materialCounts, condenseSection, craftingState);
+        simulatePackedMaterialCounts(playerId, materialCounts, packSection, craftingState);
 
         long totalSlotsNeeded = calculateTotalSlotsNeeded(materialCounts);
         long additionalSlotsNeeded = totalSlotsNeeded - simulatedContents.length;
@@ -1505,17 +1505,17 @@ public final class PackCommand implements TabExecutor, Listener {
         }
     }
 
-    private void simulateCondensedMaterialCounts(
+    private void simulatePackedMaterialCounts(
             final UUID playerId,
             final Map<Material, Long> materialCounts,
-            final ConfigurationSection condenseSection,
+            final ConfigurationSection packSection,
             final CraftingRequirementState craftingState
     ) {
         if (materialCounts.isEmpty()) {
             return;
         }
 
-        List<CondenseRule> rules = getSimulationCondenseRules(playerId, condenseSection, craftingState);
+        List<PackRule> rules = getSimulationPackRules(playerId, packSection, craftingState);
         if (rules.isEmpty()) {
             return;
         }
@@ -1524,7 +1524,7 @@ public final class PackCommand implements TabExecutor, Listener {
         for (int pass = 0; pass < maxPasses; pass++) {
             boolean changed = false;
 
-            for (CondenseRule rule : rules) {
+            for (PackRule rule : rules) {
                 long available = materialCounts.getOrDefault(rule.input(), 0L);
                 long crafts = available / rule.ratioIn();
                 if (crafts <= 0) {
@@ -1551,23 +1551,23 @@ public final class PackCommand implements TabExecutor, Listener {
         }
     }
 
-    private List<CondenseRule> getSimulationCondenseRules(
+    private List<PackRule> getSimulationPackRules(
             final UUID playerId,
-            final ConfigurationSection condenseSection,
+            final ConfigurationSection packSection,
             final CraftingRequirementState craftingState
     ) {
-        List<CondenseRule> rules = new ArrayList<>();
+        List<PackRule> rules = new ArrayList<>();
 
-        for (String key : condenseSection.getKeys(false)) {
-            ConfigurationSection ruleSection = condenseSection.getConfigurationSection(key);
+        for (String key : packSection.getKeys(false)) {
+            ConfigurationSection ruleSection = packSection.getConfigurationSection(key);
             if (ruleSection == null) {
                 continue;
             }
 
             Material input = Material.matchMaterial(key);
             if (input == null
-                    || plugin.isCondenseInputDisabled(input)
-                    || plugin.isCondenseInputExcludedForRun(playerId, input)) {
+                    || plugin.isPackInputDisabled(input)
+                    || plugin.isPackInputExcludedForRun(playerId, input)) {
                 continue;
             }
 
@@ -1584,10 +1584,10 @@ public final class PackCommand implements TabExecutor, Listener {
                 continue;
             }
 
-            rules.add(new CondenseRule(input, output, ratioIn, ratioOut));
+            rules.add(new PackRule(input, output, ratioIn, ratioOut));
         }
 
-        rules.sort(Comparator.comparingInt(rule -> getCondenseDepth(rule.input())));
+        rules.sort(Comparator.comparingInt(rule -> getPackDepth(rule.input())));
         return rules;
     }
 
@@ -1610,14 +1610,14 @@ public final class PackCommand implements TabExecutor, Listener {
 
     private Set<Material> collectTrackableInputMaterials(
             final UUID playerId,
-            final ConfigurationSection condenseSection
+            final ConfigurationSection packSection
     ) {
         Set<Material> trackableInputs = new HashSet<>();
-        for (String key : condenseSection.getKeys(false)) {
+        for (String key : packSection.getKeys(false)) {
             Material input = Material.matchMaterial(key);
             if (input == null
-                    || plugin.isCondenseInputDisabled(input)
-                    || plugin.isCondenseInputExcludedForRun(playerId, input)) {
+                    || plugin.isPackInputDisabled(input)
+                    || plugin.isPackInputExcludedForRun(playerId, input)) {
                 continue;
             }
 
@@ -1736,8 +1736,8 @@ public final class PackCommand implements TabExecutor, Listener {
         excludeMenuSessions.computeIfAbsent(
                 player.getUniqueId(),
                 ignored -> new ExcludeMenuSession(
-                        plugin.getCondenseInputExcludedPersistentSnapshot(player.getUniqueId()),
-                        plugin.getCondenseInputExcludedNextRunSnapshot(player.getUniqueId())
+                        plugin.getPackInputExcludedPersistentSnapshot(player.getUniqueId()),
+                        plugin.getPackInputExcludedNextRunSnapshot(player.getUniqueId())
                 )
         );
 
@@ -1775,8 +1775,8 @@ public final class PackCommand implements TabExecutor, Listener {
 
             Material material = configuredInputs.get(materialIndex);
             if (event.getClick().isRightClick()) {
-                boolean excluded = plugin.toggleCondenseInputExcluded(player.getUniqueId(), material);
-                plugin.clearCondenseInputExcludedNextRun(player.getUniqueId(), material);
+                boolean excluded = plugin.togglePackInputExcluded(player.getUniqueId(), material);
+                plugin.clearPackInputExcludedNextRun(player.getUniqueId(), material);
 
                 refreshExcludeMenuItem(event, rawSlot, player, material, holder.page(), totalPages);
 
@@ -1798,7 +1798,7 @@ public final class PackCommand implements TabExecutor, Listener {
                 return;
             }
 
-            if (plugin.isCondenseInputExcluded(player.getUniqueId(), material)) {
+            if (plugin.isPackInputExcluded(player.getUniqueId(), material)) {
                 player.sendMessage(
                         Component.text(getItemName(material), NamedTextColor.RED)
                                 .append(Component.text(" is already persistently excluded. Right-click it to re-include.", NamedTextColor.GRAY))
@@ -1806,7 +1806,7 @@ public final class PackCommand implements TabExecutor, Listener {
                 return;
             }
 
-            boolean excluded = plugin.toggleCondenseInputExcludedNextRun(player.getUniqueId(), material);
+            boolean excluded = plugin.togglePackInputExcludedNextRun(player.getUniqueId(), material);
             refreshExcludeMenuItem(event, rawSlot, player, material, holder.page(), totalPages);
 
             if (excluded) {
@@ -1826,11 +1826,11 @@ public final class PackCommand implements TabExecutor, Listener {
         if (rawSlot == EXCLUDE_MENU_CANCEL_SLOT) {
             ExcludeMenuSession session = excludeMenuSessions.get(player.getUniqueId());
             if (session != null) {
-                boolean restored = plugin.replaceCondenseInputExcludedPersistent(
+                boolean restored = plugin.replacePackInputExcludedPersistent(
                         player.getUniqueId(),
                         session.initialPersistentExclusions()
                 );
-                plugin.replaceCondenseInputExcludedNextRun(
+                plugin.replacePackInputExcludedNextRun(
                         player.getUniqueId(),
                         session.initialNextRunExclusions()
                 );
@@ -1922,8 +1922,8 @@ public final class PackCommand implements TabExecutor, Listener {
         ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
 
-        boolean persistentExcluded = plugin.isCondenseInputExcluded(player.getUniqueId(), material);
-        boolean nextRunExcluded = plugin.isCondenseInputExcludedNextRun(player.getUniqueId(), material);
+        boolean persistentExcluded = plugin.isPackInputExcluded(player.getUniqueId(), material);
+        boolean nextRunExcluded = plugin.isPackInputExcludedNextRun(player.getUniqueId(), material);
         Component statusPrefix = persistentExcluded
                 ? Component.text("X ", NamedTextColor.RED)
                 : nextRunExcluded
@@ -2037,13 +2037,13 @@ public final class PackCommand implements TabExecutor, Listener {
     }
 
     private List<Material> getConfiguredInputMaterials() {
-        ConfigurationSection condenseSection = plugin.getConfig().getConfigurationSection("pack");
-        if (condenseSection == null) {
+        ConfigurationSection packSection = plugin.getConfig().getConfigurationSection("pack");
+        if (packSection == null) {
             return Collections.emptyList();
         }
 
         List<Material> configuredInputs = new ArrayList<>();
-        for (String key : condenseSection.getKeys(false)) {
+        for (String key : packSection.getKeys(false)) {
             Material material = Material.matchMaterial(key);
             if (material == null || !material.isItem()) {
                 continue;
@@ -2072,8 +2072,8 @@ public final class PackCommand implements TabExecutor, Listener {
         excludeMenuSessions.computeIfAbsent(
                 player.getUniqueId(),
                 ignored -> new ExcludeMenuSession(
-                        plugin.getCondenseInputExcludedPersistentSnapshot(player.getUniqueId()),
-                        plugin.getCondenseInputExcludedNextRunSnapshot(player.getUniqueId())
+                        plugin.getPackInputExcludedPersistentSnapshot(player.getUniqueId()),
+                        plugin.getPackInputExcludedNextRunSnapshot(player.getUniqueId())
                 )
         );
         renderExcludeMenu(inventory, player, holder, configuredInputs, safePage, getExcludeMenuPageCount(configuredInputs.size()));
@@ -2180,7 +2180,7 @@ public final class PackCommand implements TabExecutor, Listener {
         }
 
         entries.sort(Comparator
-                .<Map.Entry<Material, Integer>>comparingInt(entry -> getCondenseDepth(entry.getKey()))
+                .<Map.Entry<Material, Integer>>comparingInt(entry -> getPackDepth(entry.getKey()))
                 .reversed()
                 .thenComparing(entry -> getItemName(entry.getKey())));
 
@@ -2192,18 +2192,18 @@ public final class PackCommand implements TabExecutor, Listener {
         return joiner.toString();
     }
 
-    private int getCondenseDepth(final Material material) {
-        ConfigurationSection condenseSection = plugin.getConfig().getConfigurationSection("pack");
-        if (condenseSection == null) {
+    private int getPackDepth(final Material material) {
+        ConfigurationSection packSection = plugin.getConfig().getConfigurationSection("pack");
+        if (packSection == null) {
             return 0;
         }
 
-        return getCondenseDepth(material, condenseSection, new HashSet<>());
+        return getPackDepth(material, packSection, new HashSet<>());
     }
 
-    private int getCondenseDepth(
+    private int getPackDepth(
             final Material material,
-            final ConfigurationSection condenseSection,
+            final ConfigurationSection packSection,
             final Set<Material> visiting
     ) {
         if (!visiting.add(material)) {
@@ -2211,8 +2211,8 @@ public final class PackCommand implements TabExecutor, Listener {
         }
 
         int depth = 0;
-        for (String key : condenseSection.getKeys(false)) {
-            ConfigurationSection rule = condenseSection.getConfigurationSection(key);
+        for (String key : packSection.getKeys(false)) {
+            ConfigurationSection rule = packSection.getConfigurationSection(key);
             if (rule == null) {
                 continue;
             }
@@ -2224,14 +2224,14 @@ public final class PackCommand implements TabExecutor, Listener {
                 continue;
             }
 
-            depth = Math.max(depth, getCondenseDepth(input, condenseSection, visiting) + 1);
+            depth = Math.max(depth, getPackDepth(input, packSection, visiting) + 1);
         }
 
         visiting.remove(material);
         return depth;
     }
 
-    private String formatCondenseResult(
+    private String formatPackResult(
             final int producedAmount,
             final Material producedMaterial,
             final int leftoverAmount,
@@ -2246,18 +2246,18 @@ public final class PackCommand implements TabExecutor, Listener {
         return result;
     }
 
-    private record CondenseRequest(boolean automatic) {
+    private record PackRequest(boolean automatic) {
 
-        private static CondenseRequest manual() {
-            return new CondenseRequest(false);
+        private static PackRequest manual() {
+            return new PackRequest(false);
         }
 
-        private static CondenseRequest auto() {
-            return new CondenseRequest(true);
+        private static PackRequest auto() {
+            return new PackRequest(true);
         }
     }
 
-    private enum AutoCondenseTrigger {
+    private enum AutoPackTrigger {
         PICKUP("pickup", true),
         JOIN("join", false),
         CRAFTING_TABLE_PLACE("crafting_table_place", true),
@@ -2266,7 +2266,7 @@ public final class PackCommand implements TabExecutor, Listener {
         private final String configKey;
         private final boolean defaultEnabled;
 
-        AutoCondenseTrigger(final String configKey, final boolean defaultEnabled) {
+        AutoPackTrigger(final String configKey, final boolean defaultEnabled) {
             this.configKey = configKey;
             this.defaultEnabled = defaultEnabled;
         }
@@ -2315,7 +2315,7 @@ public final class PackCommand implements TabExecutor, Listener {
     private record FailureSummary(int totalAdditionalSlotsNeeded, Map<Material, InventoryFailure> failures) {
     }
 
-    private record CondenseResult(
+    private record PackResult(
             int totalProduced,
             boolean hadValidAttempt,
             boolean blockedByCraftingRequirement,
@@ -2343,7 +2343,7 @@ public final class PackCommand implements TabExecutor, Listener {
     private record OutputAllocation(Material originMaterial, long remainder, int consumedInput) {
     }
 
-    private record CondenseRule(Material input, Material output, int ratioIn, int ratioOut) {
+    private record PackRule(Material input, Material output, int ratioIn, int ratioOut) {
     }
 
     private record CraftingRequirementState(
@@ -2364,7 +2364,7 @@ public final class PackCommand implements TabExecutor, Listener {
     ) {
     }
 
-    private static final class CondenseExecution {
+    private static final class PackExecution {
 
         private boolean hadValidAttempt;
         private boolean blockedByCraftingRequirement;
@@ -2374,7 +2374,7 @@ public final class PackCommand implements TabExecutor, Listener {
         private final Map<Material, LinkedHashMap<Material, Integer>> trackedMaterialOrigins = new EnumMap<>(Material.class);
         private final Set<Material> convertedOrigins = new HashSet<>();
 
-        private void merge(final CondenseResult result) {
+        private void merge(final PackResult result) {
             hadValidAttempt |= result.hadValidAttempt();
             blockedByCraftingRequirement |= result.blockedByCraftingRequirement();
             usedSmallRecipeBypass |= result.usedSmallRecipeBypass();
@@ -2654,7 +2654,7 @@ public final class PackCommand implements TabExecutor, Listener {
         }
 
         private void resetSettleTicks() {
-            settleTicksRemaining = CONDENSE_SETTLE_TICKS;
+            settleTicksRemaining = PACK_SETTLE_TICKS;
         }
 
         private boolean shouldWaitForInventoryToSettle() {

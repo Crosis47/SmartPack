@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Renamed permission nodes from `condense.*` to `smartpack.*`.
 - Renamed the crafted activation item to **Smart Packer** and updated the item-mode config paths.
 - Renamed the Java package namespace to `crosis47.minecraft.smartpack`.
+- Renamed remaining root image/icon assets from `condense*` to `smartpack*`.
+- Renamed active internal code identifiers from condense/auto-condense wording to pack/auto-pack wording without legacy migration shims.
 
 ---
 
@@ -94,7 +96,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Added persistent per-player skipped-material storage in SQLite via `player-exclusions.db`.
 - Added paged GUI toggles so excluded materials are marked with a red `X` and ignored by future condense runs.
 - Added one-time next-run skips from the GUI via left-click, while right-click manages persistent exclusions.
-- Added automatic migration of legacy `player-exclusions.yml` data into SQLite with a `.bak` backup of the old file.
 - Added glowing slot indicators for active exclusions and a bottom-right cancel button that reverts edits made in the open exclusion menu.
 
 ---
@@ -231,10 +232,9 @@ This release is a substantial hard fork of the original **MinecraftCondensePlugi
 - Added tab completion for the `reload` subcommand.
 - Added a dedicated `condense.reload` permission node.
 
-#### Config and migration improvements
+#### Config improvements
 - Added a versioned config format with `config-version`.
 - Added upgrade-safe config default merging so new keys can be added without overwriting customized settings.
-- Added migration support for older crafting-table boolean settings.
 - Expanded the config with documentation and cleaner message handling.
 
 #### Condensing behavior improvements

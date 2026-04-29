@@ -11,9 +11,6 @@ public enum ActivationMode {
 
         try {
             String normalized = value.trim().toUpperCase();
-            if ("CONDENSER_ITEM".equals(normalized)) {
-                return SMART_PACKER_ITEM;
-            }
             return ActivationMode.valueOf(normalized);
         } catch (IllegalArgumentException ex) {
             return null;

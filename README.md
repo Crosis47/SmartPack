@@ -310,7 +310,7 @@ You can add or remove entries under the `pack:` section to customize the behavio
 
 The main config sections are:
 
-- `config-version`: internal migration/version marker
+- `config-version`: internal config format marker
 - `activation.*`: command vs Smart Packer item activation, including whether `/pack` is allowed in item mode
 - `auto_pack.*`: optional automatic packing triggers, cooldowns, mode policy, and actionbar feedback
 - `display.list`: enables one final chat line per original packed input after the pack cycle completes
@@ -352,9 +352,7 @@ Inventory-full settings:
 
 - Invalid materials or invalid ratios are logged and skipped.
 - Non-item materials are rejected during validation.
-- Legacy crafting-table settings are migrated to `requirements.crafting_table_mode`.
 - Persistent player exclusions are stored in `player-exclusions.db`.
-- On first startup after upgrading, any existing `player-exclusions.yml` data is migrated into SQLite and the legacy file is backed up as `player-exclusions.yml.bak`.
 
 ## Project Layout
 

@@ -1,13 +1,9 @@
 package crosis47.minecraft.smartpack.storage;
 
 import org.bukkit.Material;
-import org.bukkit.configuration.ConfigurationSection;
-import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
-import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -16,7 +12,6 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.EnumSet;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -29,21 +24,18 @@ import java.util.concurrent.TimeUnit;
 
 public final class PlayerExclusionStore {
 
-    private static final String LEGACY_MIGRATION_KEY = "legacy_yaml_migrated";
+    private static final String AUTO_PACK_PREFERENCES_TABLE = "player_auto_pack_preferences";
 
     private final JavaPlugin plugin;
     private final File databaseFile;
-    private final File legacyYamlFile;
     private final ExecutorService writeExecutor;
 
     public PlayerExclusionStore(
             final JavaPlugin plugin,
-            final File databaseFile,
-            final File legacyYamlFile
+            final File databaseFile
     ) {
         this.plugin = plugin;
         this.databaseFile = databaseFile;
-        this.legacyYamlFile = legacyYamlFile;
         this.writeExecutor = Executors.newSingleThreadExecutor(new ThreadFactory() {
             @Override
             public Thread newThread(final Runnable runnable) {
@@ -65,7 +57,6 @@ public final class PlayerExclusionStore {
 
         try (Connection connection = openConnection()) {
             createSchema(connection);
-            migrateLegacyYamlIfNeeded(connection);
         }
     }
 
@@ -106,13 +97,13 @@ public final class PlayerExclusionStore {
         return exclusionsByPlayer;
     }
 
-    public synchronized Map<UUID, Boolean> loadAutoCondensePreferences() throws SQLException {
+    public synchronized Map<UUID, Boolean> loadAutoPackPreferences() throws SQLException {
         Map<UUID, Boolean> preferencesByPlayer = new HashMap<>();
 
         try (
                 Connection connection = openConnection();
                 PreparedStatement statement = connection.prepareStatement(
-                        "SELECT player_uuid, enabled FROM player_auto_condense_preferences ORDER BY player_uuid"
+                        "SELECT player_uuid, enabled FROM " + AUTO_PACK_PREFERENCES_TABLE + " ORDER BY player_uuid"
                 );
                 ResultSet resultSet = statement.executeQuery()
         ) {
@@ -200,14 +191,14 @@ public final class PlayerExclusionStore {
         });
     }
 
-    public synchronized void setAutoCondenseEnabled(
+    public synchronized void setAutoPackEnabled(
             final UUID playerId,
             final boolean enabled
     ) throws SQLException {
         try (
                 Connection connection = openConnection();
                 PreparedStatement statement = connection.prepareStatement(
-                        "INSERT OR REPLACE INTO player_auto_condense_preferences "
+                        "INSERT OR REPLACE INTO " + AUTO_PACK_PREFERENCES_TABLE + " "
                                 + "(player_uuid, enabled) VALUES (?, ?)"
                 )
         ) {
@@ -217,13 +208,13 @@ public final class PlayerExclusionStore {
         }
     }
 
-    public void setAutoCondenseEnabledAsync(
+    public void setAutoPackEnabledAsync(
             final UUID playerId,
             final boolean enabled
     ) {
         writeExecutor.execute(() -> {
             try {
-                setAutoCondenseEnabled(playerId, enabled);
+                setAutoPackEnabled(playerId, enabled);
             } catch (Exception ex) {
                 plugin.getLogger().severe("Failed to persist auto-pack preference asynchronously for player "
                         + playerId + ": " + ex.getMessage());
@@ -285,108 +276,15 @@ public final class PlayerExclusionStore {
                     )
                     """);
             statement.execute("""
-                    CREATE TABLE IF NOT EXISTS plugin_metadata (
-                        metadata_key TEXT NOT NULL PRIMARY KEY,
-                        metadata_value TEXT NOT NULL
-                    )
-                    """);
-            statement.execute("""
-                    CREATE TABLE IF NOT EXISTS player_auto_condense_preferences (
+                    CREATE TABLE IF NOT EXISTS %s (
                         player_uuid TEXT NOT NULL PRIMARY KEY,
                         enabled INTEGER NOT NULL CHECK (enabled IN (0, 1))
                     )
-                    """);
+                    """.formatted(AUTO_PACK_PREFERENCES_TABLE));
             statement.execute("""
                     CREATE INDEX IF NOT EXISTS idx_player_excluded_inputs_player_uuid
                     ON player_excluded_inputs (player_uuid)
                     """);
-        }
-    }
-
-    private void migrateLegacyYamlIfNeeded(final Connection connection) throws SQLException {
-        if (isLegacyMigrationRecorded(connection)) {
-            return;
-        }
-
-        if (!legacyYamlFile.exists()) {
-            setLegacyMigrationRecorded(connection);
-            return;
-        }
-
-        int migratedCount = 0;
-        boolean originalAutoCommit = connection.getAutoCommit();
-        connection.setAutoCommit(false);
-
-        try {
-            YamlConfiguration configuration = YamlConfiguration.loadConfiguration(legacyYamlFile);
-            ConfigurationSection playersSection = configuration.getConfigurationSection("players");
-            if (playersSection != null) {
-                for (String playerKey : playersSection.getKeys(false)) {
-                    UUID playerId;
-                    try {
-                        playerId = UUID.fromString(playerKey);
-                    } catch (IllegalArgumentException ex) {
-                        plugin.getLogger().warning("Skipping invalid player UUID in legacy player-exclusions.yml: "
-                                + playerKey);
-                        continue;
-                    }
-
-                    List<String> excludedNames = playersSection.getStringList(playerKey + ".excluded_inputs");
-                    for (String excludedName : excludedNames) {
-                        Material material = Material.matchMaterial(excludedName);
-                        if (material == null || !material.isItem()) {
-                            plugin.getLogger().warning("Skipping invalid excluded pack material '"
-                                    + excludedName + "' for player " + playerId + " during SQLite migration.");
-                            continue;
-                        }
-
-                        insertPersistentExclusion(connection, playerId, material);
-                        migratedCount++;
-                    }
-                }
-            }
-
-            setLegacyMigrationRecorded(connection);
-            connection.commit();
-        } catch (Exception ex) {
-            connection.rollback();
-            throw new SQLException("Failed to migrate legacy player exclusions to SQLite.", ex);
-        } finally {
-            connection.setAutoCommit(originalAutoCommit);
-        }
-
-        if (migratedCount > 0) {
-            plugin.getLogger().info("Migrated " + migratedCount
-                    + " player exclusion record(s) from player-exclusions.yml to player-exclusions.db.");
-        } else {
-            plugin.getLogger().info("Legacy player-exclusions.yml was present but did not contain any valid exclusions.");
-        }
-
-        backupLegacyYamlFile();
-    }
-
-    private boolean isLegacyMigrationRecorded(final Connection connection) throws SQLException {
-        try (
-                PreparedStatement statement = connection.prepareStatement(
-                        "SELECT metadata_value FROM plugin_metadata WHERE metadata_key = ?"
-                )
-        ) {
-            statement.setString(1, LEGACY_MIGRATION_KEY);
-            try (ResultSet resultSet = statement.executeQuery()) {
-                return resultSet.next() && "1".equals(resultSet.getString("metadata_value"));
-            }
-        }
-    }
-
-    private void setLegacyMigrationRecorded(final Connection connection) throws SQLException {
-        try (
-                PreparedStatement statement = connection.prepareStatement(
-                        "INSERT OR REPLACE INTO plugin_metadata (metadata_key, metadata_value) VALUES (?, ?)"
-                )
-        ) {
-            statement.setString(1, LEGACY_MIGRATION_KEY);
-            statement.setString(2, "1");
-            statement.executeUpdate();
         }
     }
 
@@ -419,21 +317,6 @@ public final class PlayerExclusionStore {
             statement.setString(1, playerId.toString());
             statement.setString(2, material.name());
             statement.executeUpdate();
-        }
-    }
-
-    private void backupLegacyYamlFile() {
-        File backupFile = new File(legacyYamlFile.getParentFile(), legacyYamlFile.getName() + ".bak");
-        try {
-            Files.move(
-                    legacyYamlFile.toPath(),
-                    backupFile.toPath(),
-                    StandardCopyOption.REPLACE_EXISTING
-            );
-            plugin.getLogger().info("Backed up legacy player exclusions file to " + backupFile.getName() + ".");
-        } catch (Exception ex) {
-            plugin.getLogger().warning("Failed to back up legacy player-exclusions.yml after SQLite migration: "
-                    + ex.getMessage());
         }
     }
 }
