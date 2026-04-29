@@ -1,0 +1,136 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to publish, such as v1.4.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            tag="$REQUESTED_TAG"
+          else
+            tag="$GITHUB_REF_NAME"
+          fi
+
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Release tags must look like v1.2.3 or v1.2.3-rc.1."
+            exit 1
+          fi
+
+          version="${tag#v}"
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "artifact=target/smartpack-$version.jar"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check out requested tag
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          git checkout --detach "refs/tags/$TAG"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Validate Maven version
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          pom_version="$(mvn -B -q help:evaluate -Dexpression=project.version -DforceStdout)"
+
+          if [[ "$pom_version" != "$VERSION" ]]; then
+            echo "::error::Tag version $VERSION does not match pom.xml version $pom_version."
+            exit 1
+          fi
+
+      - name: Build plugin
+        run: mvn -B -ntp clean package
+
+      - name: Prepare release notes
+        shell: bash
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          set +e
+          awk -v version="$VERSION" '
+            $0 ~ "^## \\[" version "\\]" { capture = 1; found = 1; next }
+            capture && /^---$/ { exit }
+            capture && /^## \[/ { exit }
+            capture { print }
+            END { if (!found) exit 1 }
+          ' CHANGELOG.md > release-notes.md
+          status=$?
+          set -e
+
+          if [[ $status -ne 0 || ! -s release-notes.md ]]; then
+            {
+              echo "SmartPack $VERSION"
+              echo
+              echo "Built from tag $TAG."
+            } > release-notes.md
+          fi
+
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+          ARTIFACT: ${{ steps.release.outputs.artifact }}
+        run: |
+          set -euo pipefail
+
+          test -f "$ARTIFACT"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --title "SmartPack $VERSION" \
+              --notes-file release-notes.md
+            gh release upload "$TAG" "$ARTIFACT#SmartPack $VERSION.jar" --clobber
+          else
+            gh release create "$TAG" "$ARTIFACT#SmartPack $VERSION.jar" \
+              --verify-tag \
+              --title "SmartPack $VERSION" \
+              --notes-file release-notes.md
+          fi

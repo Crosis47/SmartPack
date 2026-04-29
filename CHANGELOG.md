@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- Added a GitHub Actions workflow for building and publishing tagged releases.
+
 ### Changed
 - Rebranded the plugin to **SmartPack**.
 - Renamed the main command from `/condense` to `/pack`.
