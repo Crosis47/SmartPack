@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Added a GitHub Actions workflow for building and publishing tagged releases.
 
 ### Changed
+- Updated the release workflow to publish automatically when `pom.xml` version bumps land on `master`.
 - Rebranded the plugin to **SmartPack**.
 - Renamed the main command from `/condense` to `/pack`.
 - Renamed permission nodes from `condense.*` to `smartpack.*`.

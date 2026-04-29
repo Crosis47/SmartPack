@@ -48,18 +48,27 @@ The compiled jar is created in `target/` as `smartpack-<version>.jar`.
 
 ## Release
 
-GitHub Actions publishes releases when a version tag is pushed. Update `pom.xml`
-and `CHANGELOG.md`, then tag the release with the matching version:
+GitHub Actions publishes releases automatically when a push to `master` changes
+the Maven project version in `pom.xml`. Update `pom.xml` and `CHANGELOG.md`,
+commit the version bump, and push:
+
+```bash
+git push origin master
+```
+
+The workflow builds with Java 21, verifies that the tag matches the Maven
+version, creates `v<version>` after the build passes, and uploads
+`target/smartpack-<version>.jar` to the GitHub release.
+
+Releases can still be created by pushing a version tag directly:
 
 ```bash
 git tag v1.4.0
 git push origin v1.4.0
 ```
 
-The workflow builds with Java 21, verifies that the tag matches the Maven
-version, and uploads `target/smartpack-<version>.jar` to the GitHub release.
-It can also be run manually from the Actions tab with either `X.Y.Z` or
-`vX.Y.Z`. Manual runs use an existing matching tag when one is present; when
+The workflow can also be run manually from the Actions tab with either `X.Y.Z`
+or `vX.Y.Z`. Manual runs use an existing matching tag when one is present; when
 the tag does not exist yet, the workflow creates it from the selected branch
 after the build passes.
 
