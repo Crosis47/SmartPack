@@ -124,7 +124,7 @@ public final class PackCommand implements TabExecutor, Listener {
                 }
 
                 if (!isAutoPackAvailableInCurrentMode()) {
-                    sendAutoPackUnavailable(player);
+                    sendAutoPackUnavailableForCommand(player);
                     return true;
                 }
 
@@ -579,6 +579,18 @@ public final class PackCommand implements TabExecutor, Listener {
         ));
     }
 
+    private void sendAutoPackUnavailableForCommand(final Player player) {
+        if (plugin.isSmartPackerItemModeEnabled()) {
+            player.sendMessage(getMessage(
+                    "message.info.auto_pack_smart_packer_item_required",
+                    "Auto mode must be enabled through the Smart Packer item."
+            ));
+            return;
+        }
+
+        sendAutoPackUnavailable(player);
+    }
+
     private void sendAutoPackToggleMessage(final Player player, final boolean enabled) {
         String messagePath = enabled
                 ? "message.info.auto_pack_enabled"
@@ -619,7 +631,9 @@ public final class PackCommand implements TabExecutor, Listener {
             if ("exclude".startsWith(input)) {
                 completions.add("exclude");
             }
-            if (sender.hasPermission("smartpack.auto") && "auto".startsWith(input)) {
+            if (!plugin.isSmartPackerItemModeEnabled()
+                    && sender.hasPermission("smartpack.auto")
+                    && "auto".startsWith(input)) {
                 completions.add("auto");
             }
             if (sender.hasPermission("smartpack.reload") && "reload".startsWith(input)) {

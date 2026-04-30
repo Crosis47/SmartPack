@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+---
+
+## [1.4.1] - 2026-04-30
+
 ### Added
 - Added a GitHub Actions workflow for building and publishing tagged releases.
 
@@ -21,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Renamed the Java package namespace to `crosis47.minecraft.smartpack`.
 - Renamed remaining root image/icon assets from `condense*` to `smartpack*`.
 - Renamed active internal code identifiers from condense/auto-condense wording to pack/auto-pack wording without legacy migration shims.
+- Hid `/pack auto` from tab completion while Smart Packer item mode is active.
+
+### Fixed
+- Clarified `/pack auto` feedback in Smart Packer item mode so players are told to enable auto mode through the item.
 
 ---
 

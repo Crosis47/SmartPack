@@ -209,6 +209,7 @@ message:
     auto_pack_enabled: "§aAuto-pack enabled."
     auto_pack_disabled: "§eAuto-pack disabled."
     auto_pack_unavailable: "§cAuto-pack is disabled on this server."
+    auto_pack_smart_packer_item_required: "§eAuto mode must be enabled through the Smart Packer item."
 
     # Sent after a pack cycle when excluded configured inputs remain in the
     # player's storage inventory.
