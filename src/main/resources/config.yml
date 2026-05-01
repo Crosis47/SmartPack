@@ -14,7 +14,7 @@
 # ============================================================================
 
 # Internal config format marker. Do not edit by hand.
-config-version: 15
+config-version: 16
 
 
 # ============================================================================
@@ -27,7 +27,6 @@ activation:
   #   COMMAND           - Players use /pack
   #   SMART_PACKER_ITEM - Players right-click a crafted Smart Packer item
   #
-  # Changing this setting requires a server restart.
   mode: COMMAND
 
   smart_packer_item:
@@ -183,9 +182,6 @@ message:
     #   [output] = total number of final items after packing
     #   [items] = combined final packed materials and leftovers
     summary: "§aPacked into [items]."
-
-    # Legacy summary key kept for existing configs.
-    resume: "§a[input] materials packed to [output] block(s)."
 
   auto_pack:
     # Sent to the actionbar after automatic packing succeeds.

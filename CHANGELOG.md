@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.5.1] - 2026-05-01
+
+### Changed
+- Removed stale activation-mode restart guidance and the unused `message.summary.resume` bundled config alias.
+
+---
+
 ## [1.5.0] - 2026-05-01
 
 ### Added

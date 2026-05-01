@@ -41,7 +41,7 @@ import java.util.Map;
 
 public final class SmartPack extends JavaPlugin {
 
-    private static final int CURRENT_CONFIG_VERSION = 15;
+    private static final int CURRENT_CONFIG_VERSION = 16;
     private static final String DEFAULT_SMART_PACKER_NAME = "Smart Packer";
 
     private final Set<Material> disabledPackInputs = new HashSet<>();

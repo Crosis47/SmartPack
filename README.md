@@ -70,7 +70,7 @@ version, creates `v<version>` after the build passes, and uploads
 Releases can still be created by pushing a version tag directly:
 
 ```bash
-git tag v1.5.0
+git tag v1.5.1
 git push origin v1.4.0
 ```
 
@@ -84,7 +84,7 @@ after the build passes.
 1. Place the jar in your server's `plugins/` directory.
 2. Start the server once to generate `plugins/SmartPack/config.yml`.
 3. Adjust the config.
-4. Run `/pack reload` or restart the server.
+4. Run `/pack reload`.
 
 ## Commands
 
