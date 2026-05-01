@@ -7,18 +7,18 @@
 # Example:
 #   9 IRON_INGOT -> 1 IRON_BLOCK
 #
-# Only recipes listed under the pack section are allowed. The bundled
-# defaults focus on reversible vanilla compression recipes, meaning the output
-# can be crafted back into the input.
+# Only recipes listed under the pack section are allowed. The bundled defaults
+# focus on reversible vanilla compression recipes, meaning the output can be
+# crafted back into the input.
 #
 # ============================================================================
 
 # Internal config format marker. Do not edit by hand.
-config-version: 10
+config-version: 15
 
 
 # ============================================================================
-#  SECTION 01: ACTIVATION
+#  SECTION 01: PACK ACTIVATION
 # ============================================================================
 activation:
   # How players manually trigger packing.
@@ -35,6 +35,15 @@ activation:
     # If false, packing is locked to right-clicking the Smart Packer in inventory.
     allow_command_with_item: false
 
+    cooldown:
+      # If true, Smart Packer item use has a per-player cooldown.
+      # Auto-pack is disabled while this mode is active, and the item tooltip
+      # shows the remaining cooldown timer instead of auto-mode guidance.
+      enabled: false
+
+      # Cooldown duration after a Smart Packer item use.
+      seconds: 10
+
     # Registered only while activation.mode is SMART_PACKER_ITEM.
     # The result is a named crafting table item with a glint and custom data.
     recipe:
@@ -49,7 +58,7 @@ activation:
 
 
 # ============================================================================
-#  SECTION 02: REQUIREMENTS
+#  SECTION 02: MANUAL REQUIREMENTS
 # ============================================================================
 requirements:
   # These settings only apply when activation.mode is COMMAND.
@@ -74,31 +83,47 @@ requirements:
 
 
 # ============================================================================
-#  SECTION 03: AUTO-PACK
+#  SECTION 03: CHEST PACKING
+# ============================================================================
+chest_pack:
+  # Master switch for packing placed chest inventories.
+  enabled: true
+
+  # Allow /pack chest in COMMAND mode while the player is looking at a chest
+  # within their block interaction range.
+  command: true
+
+  # In SMART_PACKER_ITEM mode, right-clicking the Smart Packer while a chest is
+  # open packs that chest inventory instead of the player inventory.
+  smart_packer_item: true
+
+
+# ============================================================================
+#  SECTION 04: DISPLAY
+# ============================================================================
+display:
+  # If true, manual packing sends one line for each successful original input.
+  # If false, players only receive the final summary message.
+  list: true
+
+
+# ============================================================================
+#  SECTION 05: AUTO-PACK
 # ============================================================================
 auto_pack:
   # Master switch. Players still need smartpack.use and smartpack.auto.
+  # Ignored while Smart Packer cooldown mode is active.
   enabled: false
 
   # Default per-player preference before a player changes it with /pack auto.
   # The master switch above must still be true.
   default_enabled: false
 
-  # Minimum time between automatic pack attempts for the same player.
-  cooldown_ticks: 10
-
-  # Delay after a supported trigger before auto-pack runs. A short delay
-  # lets the server finish moving picked-up items into the player inventory.
-  delay_ticks: 2
-
-  modes:
-    # In COMMAND mode, auto-pack follows the normal requirements.* checks.
-    command: true
-
+  smart_packer_item:
     # In SMART_PACKER_ITEM mode, auto-pack follows item-mode behavior:
-    # requirements.* are ignored, and the optional Smart Packer item check below
-    # can be required. Disabled by default so the item remains intentional.
-    smart_packer_item: false
+    # requirements.* are ignored, and players can be required to carry a
+    # Smart Packer item before automatic packing can run.
+    require_item: true
 
   triggers:
     # Run shortly after a player picks up an item entity.
@@ -117,10 +142,12 @@ auto_pack:
     # Skipped when INVENTORY_OR_NEARBY is already satisfied by a carried table.
     crafting_table_nearby: true
 
-  smart_packer_item:
-    # If item-mode auto-pack is enabled, require the player to carry a
-    # Smart Packer item before automatic packing can run.
-    require_item: true
+  # Minimum time between automatic pack attempts for the same player.
+  cooldown_ticks: 10
+
+  # Delay after a supported trigger before auto-pack runs. A short delay
+  # lets the server finish moving picked-up items into the player inventory.
+  delay_ticks: 2
 
   feedback:
     # Send successful automatic pack summaries to the actionbar.
@@ -131,35 +158,6 @@ auto_pack:
 
     # Separate throttle for inventory-full actionbar warnings.
     inventory_full_cooldown_ticks: 100
-
-
-# ============================================================================
-#  SECTION 04: DISPLAY
-# ============================================================================
-display:
-  # If true, manual packing sends one line for each successful original input.
-  # If false, players only receive the final summary message.
-  list: true
-
-
-# ============================================================================
-#  SECTION 05: SAFETY AND VALIDATION
-# ============================================================================
-validation:
-  # Log a startup/reload warning when a configured recipe does not appear
-  # reversible using the server's currently loaded crafting recipes.
-  warn_if_not_reversible: true
-
-  # If true, non-reversible recipes are ignored at runtime.
-  disable_non_reversible_recipes: false
-
-inventory_full:
-  # If true, inventory-full slot estimates include nearby item entities that
-  # are already close enough to be picked up.
-  include_nearby_pickups: true
-
-  # Radius used for nearby pickup scanning. Set to 0 to disable the scan.
-  pickup_radius: 2.0
 
 
 # ============================================================================
@@ -210,13 +208,17 @@ message:
     auto_pack_disabled: "§eAuto-pack disabled."
     auto_pack_unavailable: "§cAuto-pack is disabled on this server."
     auto_pack_smart_packer_item_required: "§eAuto mode must be enabled through the Smart Packer item."
+    auto_pack_cooldown_mode_disabled: "§eAuto-pack is disabled while Smart Packer cooldown mode is enabled."
+    chest_pack_command_mode_required: "§eUse the Smart Packer item while a chest is open to pack chest inventories."
+    smart_packer_cooldown_active: "§eSmart Packer cooling down: [time]."
+    smart_packer_cooldown_ready: "§aSmart Packer ready."
 
     # Sent after a pack cycle when excluded configured inputs remain in the
-    # player's storage inventory.
+    # packed inventory.
     #
     # Placeholder:
     #   [items] = comma-separated list of skipped item amounts and materials
-    skipped_excluded_materials: "§eSkipped excluded materials in your inventory: [items]."
+    skipped_excluded_materials: "§eSkipped excluded materials: [items]."
 
     # Sent in SMART_PACKER_ITEM mode when /pack is not enabled.
     use_smart_packer_item: "§eUse a Smart Packer from your inventory to pack materials."
@@ -224,7 +226,10 @@ message:
   error:
     no_permission: "§cYou do not have permission to use this command."
     smart_packer_item_required: "§cYou must have a Smart Packer in your inventory to use this command."
+    chest_pack_disabled: "§cChest packing is disabled on this server."
+    no_chest_target: "§eLook at a chest within interaction range to pack it."
     nothing_to_pack: "§eYou do not have any valid materials to pack."
+    chest_nothing_to_pack: "§eChest does not have any valid materials to pack."
 
     # Placeholder:
     #   [item1] = input material name
@@ -250,7 +255,31 @@ message:
 
 
 # ============================================================================
-#  SECTION 07: PACK RECIPES
+#  SECTION 07: VALIDATION
+# ============================================================================
+validation:
+  # Log a startup/reload warning when a configured recipe does not appear
+  # reversible using the server's currently loaded crafting recipes.
+  warn_if_not_reversible: true
+
+  # If true, non-reversible recipes are ignored at runtime.
+  disable_non_reversible_recipes: false
+
+
+# ============================================================================
+#  SECTION 08: INVENTORY-FULL ESTIMATES
+# ============================================================================
+inventory_full:
+  # If true, inventory-full slot estimates include nearby item entities that
+  # are already close enough to be picked up.
+  include_nearby_pickups: true
+
+  # Radius used for nearby pickup scanning. Set to 0 to disable the scan.
+  pickup_radius: 2.0
+
+
+# ============================================================================
+#  SECTION 09: PACK RECIPES
 # ============================================================================
 #
 # Ordered alphabetically by input material family.

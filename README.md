@@ -20,6 +20,8 @@ SmartPack packs configured inventory materials into compact storage forms, such 
 
 - Safe inventory simulation before item changes are applied.
 - Command, Smart Packer item, and optional auto-pack activation.
+- Optional Smart Packer cooldown mode with live tooltip updates and a ready ActionBar notice.
+- Chest inventory packing through `/pack chest` or the Smart Packer item.
 - Per-player material exclusions through `/pack exclude`.
 - Configurable crafting-table requirements.
 - Reversible-recipe warnings and optional strict disabling.
@@ -33,6 +35,7 @@ The full setup and usage guide lives in the GitHub Wiki:
 - [Installation](https://github.com/Crosis47/SmartPack/wiki/Installation)
 - [Commands and Permissions](https://github.com/Crosis47/SmartPack/wiki/Commands-and-Permissions)
 - [Configuration](https://github.com/Crosis47/SmartPack/wiki/Configuration)
+- [Chest Packing](https://github.com/Crosis47/SmartPack/wiki/Chest-Packing)
 - [Recipe Configuration](https://github.com/Crosis47/SmartPack/wiki/Recipe-Configuration)
 - [Troubleshooting](https://github.com/Crosis47/SmartPack/wiki/Troubleshooting)
 
@@ -67,7 +70,7 @@ version, creates `v<version>` after the build passes, and uploads
 Releases can still be created by pushing a version tag directly:
 
 ```bash
-git tag v1.4.0
+git tag v1.5.0
 git push origin v1.4.0
 ```
 
@@ -88,6 +91,7 @@ after the build passes.
 | Command | Description |
 | --- | --- |
 | `/pack` | Pack configured materials |
+| `/pack chest` | Pack the chest you are looking at |
 | `/pack exclude` | Choose materials to skip |
 | `/pack auto` | Toggle automatic packing |
 | `/pack reload` | Reload the config |

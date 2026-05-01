@@ -9,10 +9,15 @@ import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import net.kyori.adventure.translation.GlobalTranslator;
 import org.bukkit.Bukkit;
+import org.bukkit.FluidCollisionMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.block.Block;
+import org.bukkit.block.Chest;
+import org.bukkit.block.DoubleChest;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabExecutor;
@@ -34,6 +39,7 @@ import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.util.RayTraceResult;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -69,9 +75,16 @@ public final class PackCommand implements TabExecutor, Listener {
     private final Set<UUID> pendingAutoPack = new HashSet<>();
     private final Map<UUID, Long> lastAutoPackTicks = new HashMap<>();
     private final Map<UUID, Long> lastAutoInventoryFullMessageTicks = new HashMap<>();
+    private final Map<UUID, Long> smartPackerCooldownUntilTicks = new HashMap<>();
 
     public PackCommand(final SmartPack plugin) {
         this.plugin = plugin;
+        Bukkit.getScheduler().runTaskTimer(
+                plugin,
+                this::refreshSmartPackerCooldownTooltips,
+                20L,
+                20L
+        );
     }
 
     @Override
@@ -128,8 +141,26 @@ public final class PackCommand implements TabExecutor, Listener {
                     return true;
                 }
 
+                if (plugin.isSmartPackerItemModeEnabled()) {
+                    player.sendMessage(getMessage(
+                            "message.info.auto_pack_smart_packer_item_required",
+                            "Auto mode must be enabled through the Smart Packer item."
+                    ));
+                    return true;
+                }
+
                 boolean enabled = plugin.toggleAutoPackEnabledForPlayer(player.getUniqueId());
                 sendAutoPackToggleMessage(player, enabled);
+                return true;
+            }
+
+            if (args[0].equalsIgnoreCase("chest")) {
+                if (!(sender instanceof Player player)) {
+                    sender.sendMessage("This command can only be used by a player.");
+                    return true;
+                }
+
+                handleChestPackCommand(player);
                 return true;
             }
         }
@@ -155,10 +186,48 @@ public final class PackCommand implements TabExecutor, Listener {
                 ));
                 return true;
             }
+
+            if (!tryStartSmartPackerCooldown(player, true)) {
+                return true;
+            }
         }
 
         executePack(player, PackRequest.manual());
         return true;
+    }
+
+    private void handleChestPackCommand(final Player player) {
+        if (plugin.isSmartPackerItemModeEnabled()) {
+            player.sendMessage(getMessage(
+                    "message.info.chest_pack_command_mode_required",
+                    "Use the Smart Packer item while a chest is open to pack chest inventories."
+            ));
+            return;
+        }
+
+        if (!isChestPackCommandEnabled()) {
+            sendChestPackDisabledMessage(player);
+            return;
+        }
+
+        if (!player.hasPermission("smartpack.chest")) {
+            player.sendMessage(getMessage(
+                    "message.error.no_permission",
+                    "You do not have permission to use this command."
+            ));
+            return;
+        }
+
+        Inventory chestInventory = getLookedAtChestInventory(player);
+        if (chestInventory == null) {
+            player.sendMessage(getMessage(
+                    "message.error.no_chest_target",
+                    "Look at a chest within interaction range to pack it."
+            ));
+            return;
+        }
+
+        executePack(player, PackRequest.chest(chestInventory));
     }
 
     @EventHandler(ignoreCancelled = true)
@@ -209,8 +278,233 @@ public final class PackCommand implements TabExecutor, Listener {
                 return;
             }
 
+            Inventory chestInventory = getOpenChestInventory(player);
+            if (chestInventory != null && isChestPackSmartPackerItemEnabled()) {
+                if (!player.hasPermission("smartpack.chest")) {
+                    player.sendMessage(getMessage(
+                            "message.error.no_permission",
+                            "You do not have permission to use this command."
+                    ));
+                    return;
+                }
+
+                if (!tryStartSmartPackerCooldown(player, true)) {
+                    return;
+                }
+
+                executePack(player, PackRequest.chest(chestInventory));
+                return;
+            }
+
+            if (!tryStartSmartPackerCooldown(player, true)) {
+                return;
+            }
+
             executePack(player);
         });
+    }
+
+    private boolean isChestPackEnabled() {
+        return plugin.getConfig().getBoolean("chest_pack.enabled", true);
+    }
+
+    private boolean isChestPackCommandEnabled() {
+        return isChestPackEnabled() && plugin.getConfig().getBoolean("chest_pack.command", true);
+    }
+
+    private boolean isChestPackSmartPackerItemEnabled() {
+        return isChestPackEnabled() && plugin.getConfig().getBoolean("chest_pack.smart_packer_item", true);
+    }
+
+    private void sendChestPackDisabledMessage(final Player player) {
+        player.sendMessage(getMessage(
+                "message.error.chest_pack_disabled",
+                "Chest packing is disabled on this server."
+        ));
+    }
+
+    private Inventory getLookedAtChestInventory(final Player player) {
+        RayTraceResult result = player.rayTraceBlocks(getBlockInteractionRange(player), FluidCollisionMode.NEVER);
+        if (result == null) {
+            return null;
+        }
+
+        Block block = result.getHitBlock();
+        if (block == null) {
+            return null;
+        }
+
+        return getChestBlockInventory(block);
+    }
+
+    private double getBlockInteractionRange(final Player player) {
+        AttributeInstance range = player.getAttribute(Attribute.BLOCK_INTERACTION_RANGE);
+        if (range == null) {
+            return 4.5D;
+        }
+
+        return Math.max(0.1D, range.getValue());
+    }
+
+    private Inventory getOpenChestInventory(final Player player) {
+        Inventory inventory = player.getOpenInventory().getTopInventory();
+        return isChestInventory(inventory) ? inventory : null;
+    }
+
+    private boolean isChestInventory(final Inventory inventory) {
+        if (inventory == null) {
+            return false;
+        }
+
+        InventoryHolder holder = inventory.getHolder();
+        if (holder instanceof Chest || holder instanceof DoubleChest) {
+            return true;
+        }
+
+        Location location = inventory.getLocation();
+        return location != null && getChestBlockInventory(location.getBlock()) != null;
+    }
+
+    private Inventory getChestBlockInventory(final Block block) {
+        if (block == null || (block.getType() != Material.CHEST && block.getType() != Material.TRAPPED_CHEST)) {
+            return null;
+        }
+
+        if (!(block.getState() instanceof Chest chest)) {
+            return null;
+        }
+
+        return chest.getInventory();
+    }
+
+    private boolean tryStartSmartPackerCooldown(final Player player, final boolean notifyWhenCoolingDown) {
+        if (!plugin.isSmartPackerCooldownModeEnabled()
+                || player.hasPermission("smartpack.cooldown.bypass")) {
+            refreshSmartPackerItems(player);
+            return true;
+        }
+
+        long cooldownTicks = plugin.getSmartPackerCooldownTicks();
+        if (cooldownTicks <= 0L) {
+            refreshSmartPackerItems(player);
+            return true;
+        }
+
+        UUID playerId = player.getUniqueId();
+        long remainingTicks = getRemainingSmartPackerCooldownTicks(playerId);
+        if (remainingTicks > 0L) {
+            if (notifyWhenCoolingDown) {
+                String message = getMessage(
+                        "message.info.smart_packer_cooldown_active",
+                        "Smart Packer cooling down: [time]."
+                ).replace("[time]", formatCooldownTicks(remainingTicks));
+                sendActionBar(player, message);
+            }
+            refreshSmartPackerItems(player);
+            return false;
+        }
+
+        smartPackerCooldownUntilTicks.put(playerId, Bukkit.getCurrentTick() + cooldownTicks);
+        refreshSmartPackerItems(player);
+        return true;
+    }
+
+    private long getRemainingSmartPackerCooldownTicks(final UUID playerId) {
+        Long cooldownUntilTick = smartPackerCooldownUntilTicks.get(playerId);
+        if (cooldownUntilTick == null) {
+            return 0L;
+        }
+
+        long remainingTicks = cooldownUntilTick - Bukkit.getCurrentTick();
+        if (remainingTicks <= 0L) {
+            smartPackerCooldownUntilTicks.remove(playerId);
+            return 0L;
+        }
+
+        return remainingTicks;
+    }
+
+    private void refreshSmartPackerCooldownTooltips() {
+        if (!plugin.isSmartPackerItemModeEnabled()) {
+            smartPackerCooldownUntilTicks.clear();
+            return;
+        }
+
+        if (!plugin.isSmartPackerCooldownModeEnabled()) {
+            smartPackerCooldownUntilTicks.clear();
+        } else {
+            long currentTick = Bukkit.getCurrentTick();
+            List<UUID> readyPlayerIds = new ArrayList<>();
+            smartPackerCooldownUntilTicks.entrySet().removeIf(entry -> {
+                if (entry.getValue() > currentTick) {
+                    return false;
+                }
+
+                readyPlayerIds.add(entry.getKey());
+                return true;
+            });
+
+            for (UUID playerId : readyPlayerIds) {
+                Player player = Bukkit.getPlayer(playerId);
+                if (player != null && player.isOnline() && !player.hasPermission("smartpack.cooldown.bypass")) {
+                    sendSmartPackerCooldownReadyMessage(player);
+                }
+            }
+        }
+
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            refreshSmartPackerItems(player);
+        }
+    }
+
+    private void refreshSmartPackerItems(final Player player) {
+        if (player == null || !plugin.isSmartPackerItemModeEnabled()) {
+            return;
+        }
+
+        long remainingTicks = player.hasPermission("smartpack.cooldown.bypass")
+                ? 0L
+                : getRemainingSmartPackerCooldownTicks(player.getUniqueId());
+        boolean updated = false;
+
+        PlayerInventory inventory = player.getInventory();
+        ItemStack[] contents = inventory.getContents();
+        for (int slot = 0; slot < contents.length; slot++) {
+            ItemStack item = contents[slot];
+            if (!plugin.isSmartPackerItem(item)) {
+                continue;
+            }
+
+            if (plugin.updateSmartPackerItemLore(item, remainingTicks)) {
+                inventory.setItem(slot, item);
+                updated = true;
+            }
+        }
+
+        ItemStack cursorItem = player.getItemOnCursor();
+        if (plugin.isSmartPackerItem(cursorItem)) {
+            updated |= plugin.updateSmartPackerItemLore(cursorItem, remainingTicks);
+            player.setItemOnCursor(cursorItem);
+        }
+
+        if (updated) {
+            player.updateInventory();
+        }
+    }
+
+    private String formatCooldownTicks(final long ticks) {
+        long seconds = Math.max(0L, (ticks + 19L) / 20L);
+        if (seconds < 60L) {
+            return seconds + "s";
+        }
+
+        long minutes = seconds / 60L;
+        long remainingSeconds = seconds % 60L;
+        if (remainingSeconds == 0L) {
+            return minutes + "m";
+        }
+
+        return minutes + "m " + remainingSeconds + "s";
     }
 
     @EventHandler(ignoreCancelled = true)
@@ -293,6 +587,7 @@ public final class PackCommand implements TabExecutor, Listener {
     @EventHandler
     public void onPlayerJoin(final PlayerJoinEvent event) {
         plugin.cleanupSmartPackerItems(event.getPlayer());
+        refreshSmartPackerItems(event.getPlayer());
         queueAutoPack(event.getPlayer(), AutoPackTrigger.JOIN);
     }
 
@@ -302,6 +597,7 @@ public final class PackCommand implements TabExecutor, Listener {
         pendingAutoPack.remove(playerId);
         lastAutoPackTicks.remove(playerId);
         lastAutoInventoryFullMessageTicks.remove(playerId);
+        smartPackerCooldownUntilTicks.remove(playerId);
     }
 
     public void executePack(final Player player) {
@@ -346,7 +642,7 @@ public final class PackCommand implements TabExecutor, Listener {
                 return;
             }
 
-            PackResult result = pack(player, craftingState, execution, request);
+            PackResult result = pack(player, request.targetInventory(player), craftingState, execution, request);
             execution.merge(result);
 
             if (result.totalProduced() > 0 || result.inventoryChangedDuringRun()) {
@@ -408,9 +704,15 @@ public final class PackCommand implements TabExecutor, Listener {
                 }
 
                 if (!execution.hadValidAttempt) {
+                    String messagePath = request.chestTarget()
+                            ? "message.error.chest_nothing_to_pack"
+                            : "message.error.nothing_to_pack";
+                    String fallback = request.chestTarget()
+                            ? "Chest does not have any valid materials to pack."
+                            : "You do not have any valid materials to pack.";
                     String message = getMessage(
-                            "message.error.nothing_to_pack",
-                            "You do not have any valid materials to pack."
+                            messagePath,
+                            fallback
                     );
                     player.sendMessage(message);
                 }
@@ -491,6 +793,10 @@ public final class PackCommand implements TabExecutor, Listener {
     }
 
     private boolean canAutoPack(final Player player) {
+        if (plugin.isSmartPackerCooldownModeEnabled()) {
+            return false;
+        }
+
         if (!plugin.getConfig().getBoolean("auto_pack.enabled", false)) {
             return false;
         }
@@ -504,15 +810,11 @@ public final class PackCommand implements TabExecutor, Listener {
         }
 
         if (plugin.isSmartPackerItemModeEnabled()) {
-            if (!plugin.getConfig().getBoolean("auto_pack.modes.smart_packer_item", false)) {
-                return false;
-            }
-
             return !plugin.getConfig().getBoolean("auto_pack.smart_packer_item.require_item", true)
                     || plugin.hasSmartPackerItem(player.getInventory().getStorageContents());
         }
 
-        return plugin.getConfig().getBoolean("auto_pack.modes.command", true);
+        return true;
     }
 
     private boolean shouldCheckNearbyCraftingTableAutoTrigger(
@@ -561,18 +863,26 @@ public final class PackCommand implements TabExecutor, Listener {
     }
 
     private boolean isAutoPackAvailableInCurrentMode() {
+        if (plugin.isSmartPackerCooldownModeEnabled()) {
+            return false;
+        }
+
         if (!plugin.getConfig().getBoolean("auto_pack.enabled", false)) {
             return false;
         }
 
-        if (plugin.isSmartPackerItemModeEnabled()) {
-            return plugin.getConfig().getBoolean("auto_pack.modes.smart_packer_item", false);
-        }
-
-        return plugin.getConfig().getBoolean("auto_pack.modes.command", true);
+        return true;
     }
 
     private void sendAutoPackUnavailable(final Player player) {
+        if (plugin.isSmartPackerCooldownModeEnabled()) {
+            player.sendMessage(getMessage(
+                    "message.info.auto_pack_cooldown_mode_disabled",
+                    "Auto-pack is disabled while Smart Packer cooldown mode is enabled."
+            ));
+            return;
+        }
+
         player.sendMessage(getMessage(
                 "message.info.auto_pack_unavailable",
                 "Auto-pack is disabled on this server."
@@ -580,6 +890,16 @@ public final class PackCommand implements TabExecutor, Listener {
     }
 
     private void sendAutoPackUnavailableForCommand(final Player player) {
+        if (plugin.isSmartPackerCooldownModeEnabled()) {
+            sendAutoPackUnavailable(player);
+            return;
+        }
+
+        if (!plugin.getConfig().getBoolean("auto_pack.enabled", false)) {
+            sendAutoPackUnavailable(player);
+            return;
+        }
+
         if (plugin.isSmartPackerItemModeEnabled()) {
             player.sendMessage(getMessage(
                     "message.info.auto_pack_smart_packer_item_required",
@@ -630,6 +950,12 @@ public final class PackCommand implements TabExecutor, Listener {
 
             if ("exclude".startsWith(input)) {
                 completions.add("exclude");
+            }
+            if (!plugin.isSmartPackerItemModeEnabled()
+                    && isChestPackCommandEnabled()
+                    && sender.hasPermission("smartpack.chest")
+                    && "chest".startsWith(input)) {
+                completions.add("chest");
             }
             if (!plugin.isSmartPackerItemModeEnabled()
                     && sender.hasPermission("smartpack.auto")
@@ -833,11 +1159,11 @@ public final class PackCommand implements TabExecutor, Listener {
 
     private PackResult pack(
             final Player player,
+            final Inventory inventory,
             final CraftingRequirementState craftingState,
             final PackExecution execution,
             final PackRequest request
     ) {
-        PlayerInventory inventory = player.getInventory();
         ConfigurationSection packSection = plugin.getConfig().getConfigurationSection("pack");
         if (packSection == null) {
             plugin.getLogger().warning("Missing 'pack' section in config.yml");
@@ -890,7 +1216,8 @@ public final class PackCommand implements TabExecutor, Listener {
                 player.getUniqueId(),
                 inventory,
                 packSection,
-                craftingState
+                craftingState,
+                request.includeNearbyPickups()
         );
         List<SkippedMaterial> skippedMaterials = collectSkippedExcludedMaterialsForRun(
                 player.getUniqueId(),
@@ -912,7 +1239,7 @@ public final class PackCommand implements TabExecutor, Listener {
 
     private PassResult runPackPass(
             final Player player,
-            final PlayerInventory inventory,
+            final Inventory inventory,
             final ConfigurationSection packSection,
             final CraftingRequirementState craftingState,
             final PackExecution execution,
@@ -1035,9 +1362,10 @@ public final class PackCommand implements TabExecutor, Listener {
     private FailureSummary evaluateRemainingInventoryFailures(
             final Player player,
             final UUID playerId,
-            final PlayerInventory inventory,
+            final Inventory inventory,
             final ConfigurationSection packSection,
-            final CraftingRequirementState craftingState
+            final CraftingRequirementState craftingState,
+            final boolean includeNearbyPickups
     ) {
         Map<Material, Integer> itemCounts = countContentsByMaterial(inventory.getStorageContents());
 
@@ -1109,7 +1437,8 @@ public final class PackCommand implements TabExecutor, Listener {
                         playerId,
                         cloneContents(inventory.getStorageContents()),
                         packSection,
-                        craftingState
+                        craftingState,
+                        includeNearbyPickups
                 );
 
         return new FailureSummary(totalAdditionalSlotsNeeded, failures);
@@ -1117,7 +1446,7 @@ public final class PackCommand implements TabExecutor, Listener {
 
     private List<SkippedMaterial> collectSkippedExcludedMaterialsForRun(
             final UUID playerId,
-            final PlayerInventory inventory,
+            final Inventory inventory,
             final ConfigurationSection packSection
     ) {
         Map<Material, Integer> itemCounts = countContentsByMaterial(inventory.getStorageContents());
@@ -1145,7 +1474,7 @@ public final class PackCommand implements TabExecutor, Listener {
 
     private AttemptResult tryPack(
             final Player player,
-            final PlayerInventory inventory,
+            final Inventory inventory,
             final Material input,
             final Material output,
             final int ratioIn,
@@ -1396,6 +1725,15 @@ public final class PackCommand implements TabExecutor, Listener {
         player.sendActionBar(LegacyComponentSerializer.legacySection().deserialize(normalizeDisplayArrows(message)));
     }
 
+    private void sendSmartPackerCooldownReadyMessage(final Player player) {
+        String message = getMessage(
+                "message.info.smart_packer_cooldown_ready",
+                "§aSmart Packer ready."
+        );
+
+        sendActionBar(player, message);
+    }
+
     private void sendExclusionChangesAppliedMessage(final Player player) {
         player.sendMessage(Component.text("Exclusion changes applied.", NamedTextColor.GREEN));
     }
@@ -1432,14 +1770,17 @@ public final class PackCommand implements TabExecutor, Listener {
             final UUID playerId,
             final ItemStack[] simulatedContents,
             final ConfigurationSection packSection,
-            final CraftingRequirementState craftingState
+            final CraftingRequirementState craftingState,
+            final boolean includeNearbyPickups
     ) {
         if (simulatedContents.length == 0) {
             return 0;
         }
 
         Map<Material, Long> materialCounts = countContentsByMaterialLong(simulatedContents);
-        mergeNearbyPickupMaterialCounts(player, materialCounts);
+        if (includeNearbyPickups) {
+            mergeNearbyPickupMaterialCounts(player, materialCounts);
+        }
         simulatePackedMaterialCounts(playerId, materialCounts, packSection, craftingState);
 
         long totalSlotsNeeded = calculateTotalSlotsNeeded(materialCounts);
@@ -2260,14 +2601,30 @@ public final class PackCommand implements TabExecutor, Listener {
         return result;
     }
 
-    private record PackRequest(boolean automatic) {
+    private record PackRequest(boolean automatic, Inventory targetInventory, boolean includeNearbyPickups) {
 
         private static PackRequest manual() {
-            return new PackRequest(false);
+            return new PackRequest(false, null, true);
         }
 
         private static PackRequest auto() {
-            return new PackRequest(true);
+            return new PackRequest(true, null, true);
+        }
+
+        private static PackRequest chest(final Inventory inventory) {
+            return new PackRequest(false, inventory, false);
+        }
+
+        private boolean chestTarget() {
+            return targetInventory != null;
+        }
+
+        private Inventory targetInventory(final Player player) {
+            if (targetInventory == null) {
+                return player.getInventory();
+            }
+
+            return targetInventory;
         }
     }
 

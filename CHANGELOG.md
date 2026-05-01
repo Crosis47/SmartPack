@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.5.0] - 2026-05-01
+
+### Added
+- Added chest inventory packing through `/pack chest` in command mode and Smart Packer right-clicks while a chest is open in item mode.
+- Added `smartpack.chest` permission and `chest_pack.*` config toggles for chest inventory packing.
+- Added optional Smart Packer cooldown mode with live per-second tooltip updates and the `smartpack.cooldown.bypass` permission.
+- Added an ActionBar notice when a Smart Packer cooldown finishes.
+
+### Changed
+- Disabled auto-pack behavior and removed auto-mode Smart Packer tooltip text while cooldown mode is active.
+- Updated the no-materials feedback for chest packing to call out when the target inventory is a chest.
+- Reorganized the bundled config into setup-oriented sections while keeping the existing comment style.
+- Removed the redundant `auto_pack.modes.*` config layer so `auto_pack.enabled` controls auto-pack in the active activation mode.
+
+---
+
 ## [1.4.1] - 2026-04-30
 
 ### Added

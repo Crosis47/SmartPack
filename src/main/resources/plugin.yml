@@ -9,7 +9,7 @@ commands:
   pack:
     description: Pack configured materials into compact storage forms
     permission: smartpack.use
-    usage: "/pack [reload|exclude|auto]"
+    usage: "/pack [chest|exclude|auto|reload]"
 
 permissions:
   smartpack.use:
@@ -22,4 +22,12 @@ permissions:
 
   smartpack.auto:
     description: Allows automatic packing when auto-pack is enabled
+    default: false
+
+  smartpack.chest:
+    description: Allows packing chest inventories with /pack chest or a Smart Packer item
+    default: true
+
+  smartpack.cooldown.bypass:
+    description: Allows bypassing the Smart Packer item cooldown
     default: false

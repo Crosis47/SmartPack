@@ -27,6 +27,7 @@ import java.io.File;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -40,7 +41,7 @@ import java.util.Map;
 
 public final class SmartPack extends JavaPlugin {
 
-    private static final int CURRENT_CONFIG_VERSION = 10;
+    private static final int CURRENT_CONFIG_VERSION = 15;
     private static final String DEFAULT_SMART_PACKER_NAME = "Smart Packer";
 
     private final Set<Material> disabledPackInputs = new HashSet<>();
@@ -384,25 +385,83 @@ public final class SmartPack extends JavaPlugin {
         return getConfig().getBoolean("activation.smart_packer_item.allow_command_with_item", false);
     }
 
+    public boolean isSmartPackerCooldownModeEnabled() {
+        return isSmartPackerItemModeEnabled()
+                && getConfig().getBoolean("activation.smart_packer_item.cooldown.enabled", false);
+    }
+
+    public int getSmartPackerCooldownSeconds() {
+        return Math.max(0, getConfig().getInt("activation.smart_packer_item.cooldown.seconds", 10));
+    }
+
+    public long getSmartPackerCooldownTicks() {
+        return getSmartPackerCooldownSeconds() * 20L;
+    }
+
     public ItemStack createSmartPackerItem() {
         ItemStack item = new ItemStack(Material.CRAFTING_TABLE);
+        updateSmartPackerItemLore(item, 0L);
+        return item;
+    }
+
+    public boolean updateSmartPackerItemLore(final ItemStack item, final long remainingCooldownTicks) {
+        if (item == null || item.getType() != Material.CRAFTING_TABLE) {
+            return false;
+        }
+
         ItemMeta meta = item.getItemMeta();
+        if (meta == null) {
+            return false;
+        }
 
         meta.displayName(Component.text(DEFAULT_SMART_PACKER_NAME, NamedTextColor.AQUA)
                 .decoration(TextDecoration.ITALIC, false));
-        meta.lore(List.of(
-                Component.text("Instant mode: right-click to pack now.", NamedTextColor.GRAY)
-                        .decoration(TextDecoration.ITALIC, false),
-                Component.text("Auto mode: shift-right-click to enable.", NamedTextColor.GRAY)
-                        .decoration(TextDecoration.ITALIC, false),
-                Component.text("Auto mode packs after item pickups.", NamedTextColor.DARK_GRAY)
-                        .decoration(TextDecoration.ITALIC, false)
-        ));
+
+        List<Component> lore = new ArrayList<>();
+        lore.add(Component.text("Right-click to pack now.", NamedTextColor.GRAY)
+                .decoration(TextDecoration.ITALIC, false));
+        lore.add(Component.text("Open a chest to pack that chest instead.", NamedTextColor.GRAY)
+                .decoration(TextDecoration.ITALIC, false));
+
+        if (isSmartPackerCooldownModeEnabled()) {
+            lore.add(buildSmartPackerCooldownLore(remainingCooldownTicks));
+        } else {
+            lore.add(Component.text("Auto mode: shift-right-click to enable.", NamedTextColor.GRAY)
+                    .decoration(TextDecoration.ITALIC, false));
+            lore.add(Component.text("Auto mode packs after item pickups.", NamedTextColor.DARK_GRAY)
+                    .decoration(TextDecoration.ITALIC, false));
+        }
+
+        meta.lore(lore);
         meta.setEnchantmentGlintOverride(true);
         meta.getPersistentDataContainer().set(smartPackerItemKey, PersistentDataType.BYTE, (byte) 1);
 
         item.setItemMeta(meta);
-        return item;
+        return true;
+    }
+
+    private Component buildSmartPackerCooldownLore(final long remainingCooldownTicks) {
+        long seconds = Math.max(0L, (remainingCooldownTicks + 19L) / 20L);
+        String cooldownText = seconds <= 0L ? "Ready" : formatCooldownSeconds(seconds);
+        NamedTextColor cooldownColor = seconds <= 0L ? NamedTextColor.GREEN : NamedTextColor.YELLOW;
+
+        return Component.text("Cooldown: ", NamedTextColor.GRAY)
+                .append(Component.text(cooldownText, cooldownColor))
+                .decoration(TextDecoration.ITALIC, false);
+    }
+
+    private String formatCooldownSeconds(final long seconds) {
+        if (seconds < 60L) {
+            return seconds + "s";
+        }
+
+        long minutes = seconds / 60L;
+        long remainingSeconds = seconds % 60L;
+        if (remainingSeconds == 0L) {
+            return minutes + "m";
+        }
+
+        return minutes + "m " + remainingSeconds + "s";
     }
 
     public boolean isSmartPackerItem(final ItemStack item) {
