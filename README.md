@@ -82,6 +82,17 @@ or `vX.Y.Z`. Manual runs use an existing matching tag when one is present; when
 the tag does not exist yet, the workflow creates it from the selected branch
 after the build passes.
 
+### Development Releases
+
+Development branch pushes publish GitHub prereleases through the Dev Release
+workflow. It runs for `dev`, `dev/**`, `feature/**`, `release/**`, and `26.*`
+branches, including compatibility branches such as `26.1.2`.
+
+Each dev build creates a unique prerelease tag like
+`dev-<branch>-<run>.<attempt>` and uploads a clearly named jar like
+`SmartPack-<version>-dev.<run>.<attempt>-<branch>-<sha>.jar`. These builds are
+for testing and do not replace the stable `master` version-bump release flow.
+
 ## Install
 
 1. Place the jar in your server's `plugins/` directory.

@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- Added a Dev Release GitHub Actions workflow that publishes prerelease jars from development branches.
+
 ### Changed
 - Updated the build, plugin metadata, release workflow, and README requirements for Paper 26.1.2 and Java 25.
 - Declared the SQLite JDBC runtime library in `plugin.yml` so Paper loads the player preference database driver on startup.
