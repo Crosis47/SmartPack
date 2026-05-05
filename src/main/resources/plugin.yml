@@ -1,9 +1,12 @@
 name: SmartPack
 version: '${project.version}'
 main: crosis47.minecraft.smartpack.SmartPack
-api-version: '1.21.11'
+api-version: '26.1.2'
 authors: [ crosis47 ]
 description: Paper plugin for smart Minecraft inventory packing and compression.
+
+libraries:
+  - org.xerial:sqlite-jdbc:${sqlite.jdbc.version}
 
 commands:
   pack:

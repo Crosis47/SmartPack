@@ -1,0 +1,162 @@
+name: Dev Release
+
+on:
+  push:
+    branches:
+      - dev
+      - "dev/**"
+      - "feature/**"
+      - "release/**"
+      - "26.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dev-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dev-release:
+    name: Build and publish development prerelease
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Reject stable branch
+        if: github.ref_name == 'master'
+        run: |
+          echo "::error::Use the stable Release workflow for master builds."
+          exit 1
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Resolve dev build metadata
+        id: dev
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="$(
+            python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          namespace = {"m": "http://maven.apache.org/POM/4.0.0"}
+          project = ET.parse("pom.xml").getroot()
+          version = project.findtext("m:version", namespaces=namespace)
+          if not version:
+              raise SystemExit("pom.xml does not define project.version")
+          print(version)
+          PY
+          )"
+
+          branch="$GITHUB_REF_NAME"
+          safe_branch="$(
+            printf '%s' "$branch" \
+              | tr '[:upper:]' '[:lower:]' \
+              | sed -E 's#[^a-z0-9._-]+#-#g; s#^-+##; s#-+$##; s#-+#-#g' \
+              | cut -c1-60
+          )"
+
+          if [[ -z "$safe_branch" ]]; then
+            safe_branch="branch"
+          fi
+
+          short_sha="${GITHUB_SHA::7}"
+          run_id="${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+          tag="dev-${safe_branch}-${run_id}"
+          artifact="SmartPack-${version}-dev.${run_id}-${safe_branch}-${short_sha}.jar"
+          title="SmartPack ${version} dev build ${run_id} (${branch})"
+
+          cat > dev-release-notes.md <<EOF
+          Development build from branch \`$branch\`.
+
+          - Commit: \`$GITHUB_SHA\`
+          - Run: \`$GITHUB_RUN_ID\` attempt \`$GITHUB_RUN_ATTEMPT\`
+          - Maven version: \`$version\`
+
+          This is a prerelease build for testing and may be unstable.
+          EOF
+
+          {
+            echo "version=$version"
+            echo "branch=$branch"
+            echo "safe_branch=$safe_branch"
+            echo "short_sha=$short_sha"
+            echo "tag=$tag"
+            echo "artifact=$artifact"
+            echo "title=$title"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build plugin
+        run: mvn -B -ntp clean package
+
+      - name: Prepare dev artifact
+        shell: bash
+        env:
+          VERSION: ${{ steps.dev.outputs.version }}
+          ARTIFACT: ${{ steps.dev.outputs.artifact }}
+        run: |
+          set -euo pipefail
+
+          source_jar="target/smartpack-$VERSION.jar"
+          test -f "$source_jar"
+          cp "$source_jar" "$ARTIFACT"
+
+      - name: Create dev release tag
+        shell: bash
+        env:
+          TAG: ${{ steps.dev.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          git fetch --tags --force
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            existing_sha="$(git rev-list -n 1 "$TAG")"
+            if [[ "$existing_sha" != "$GITHUB_SHA" ]]; then
+              echo "::error::Tag $TAG already exists at $existing_sha instead of $GITHUB_SHA."
+              exit 1
+            fi
+
+            echo "::notice::Tag $TAG already exists at this commit. Reusing it."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$TAG"
+
+      - name: Publish GitHub prerelease
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.dev.outputs.tag }}
+          TITLE: ${{ steps.dev.outputs.title }}
+          ARTIFACT: ${{ steps.dev.outputs.artifact }}
+        run: |
+          set -euo pipefail
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --prerelease \
+              --title "$TITLE" \
+              --notes-file dev-release-notes.md
+            gh release upload "$TAG" "$ARTIFACT#${ARTIFACT}" --clobber
+          else
+            gh release create "$TAG" "$ARTIFACT#${ARTIFACT}" \
+              --verify-tag \
+              --prerelease \
+              --title "$TITLE" \
+              --notes-file dev-release-notes.md
+          fi
