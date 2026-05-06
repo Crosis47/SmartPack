@@ -71,13 +71,13 @@ jobs:
           fi
 
           build_timestamp="$(date -u +'%Y%m%d-%H%M%SZ')"
-          tag="smartpack-dev-${safe_branch}"
+          tag="smartpack-dev-${safe_branch}-${build_timestamp}"
           artifact="SmartPack-dev-${safe_branch}-${build_timestamp}.jar"
           title="SmartPack ${version} dev: ${branch} (${build_timestamp})"
           run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 
           cat > dev-release-notes.md <<EOF
-          Latest development prerelease from branch \`$branch\`.
+          Historical development prerelease from branch \`$branch\`.
 
           - Download: \`$artifact\`
           - Maven version: \`$version\`
@@ -86,7 +86,7 @@ jobs:
           - Workflow run: $run_url
           - Run attempt: \`$GITHUB_RUN_ATTEMPT\`
 
-          This prerelease is replaced each time \`$branch\` is pushed. It is for testing and may be unstable.
+          This prerelease is retained as a historical test build and may be unstable.
           EOF
 
           {
@@ -114,7 +114,7 @@ jobs:
           test -f "$source_jar"
           cp "$source_jar" "$ARTIFACT"
 
-      - name: Create or update dev release tag
+      - name: Create dev release tag
         shell: bash
         env:
           TAG: ${{ steps.dev.outputs.tag }}
@@ -122,22 +122,16 @@ jobs:
           set -euo pipefail
 
           git fetch --tags --force
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-            existing_sha="$(git rev-list -n 1 "$TAG")"
-            if [[ "$existing_sha" == "$GITHUB_SHA" ]]; then
-              echo "::notice::Tag $TAG already points at this commit."
-            else
-              echo "::notice::Moving $TAG from $existing_sha to $GITHUB_SHA."
-            fi
-          else
-            echo "::notice::Creating $TAG at $GITHUB_SHA."
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null 2>&1 \
+            || git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::Historical dev release tag $TAG already exists. Re-run the workflow to get a new timestamp."
+            exit 1
           fi
 
-          git tag -f "$TAG" "$GITHUB_SHA"
-          git push --force origin "refs/tags/$TAG"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$TAG"
 
       - name: Publish GitHub prerelease
         shell: bash
@@ -146,28 +140,16 @@ jobs:
           TAG: ${{ steps.dev.outputs.tag }}
           TITLE: ${{ steps.dev.outputs.title }}
           ARTIFACT: ${{ steps.dev.outputs.artifact }}
-          SAFE_BRANCH: ${{ steps.dev.outputs.safe_branch }}
         run: |
           set -euo pipefail
 
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" \
-              --prerelease \
-              --title "$TITLE" \
-              --notes-file dev-release-notes.md
-            gh release view "$TAG" --json assets --jq '.assets[].name' \
-              | while read -r asset; do
-                  case "$asset" in
-                    SmartPack-dev-"$SAFE_BRANCH"-*.jar)
-                      gh release delete-asset "$TAG" "$asset" --yes
-                      ;;
-                  esac
-                done
-            gh release upload "$TAG" "$ARTIFACT#${ARTIFACT}" --clobber
-          else
-            gh release create "$TAG" "$ARTIFACT#${ARTIFACT}" \
-              --verify-tag \
-              --prerelease \
-              --title "$TITLE" \
-              --notes-file dev-release-notes.md
+            echo "::error::Historical dev release $TAG already exists. Re-run the workflow to get a new timestamp."
+            exit 1
           fi
+
+          gh release create "$TAG" "$ARTIFACT#${ARTIFACT}" \
+            --verify-tag \
+            --prerelease \
+            --title "$TITLE" \
+            --notes-file dev-release-notes.md

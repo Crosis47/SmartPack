@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 - Updated Maven packaging so build output keeps only the final shaded plugin jar.
-- Updated the Dev Release workflow to build every non-production branch push while ignoring `master` and `main`, with a clearer branch-named prerelease artifact and UTC timestamp suffix.
+- Updated the Dev Release workflow to build every non-production branch push while ignoring `master` and `main`, publishing timestamped prereleases as historical builds instead of replacing older dev releases.
 - Removed the explicit SQLite JDBC library declaration because Paper bundles the SQLite JDBC driver.
 
 ---
