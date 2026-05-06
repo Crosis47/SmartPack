@@ -5,9 +5,6 @@ api-version: '26.1.2'
 authors: [ crosis47 ]
 description: Paper plugin for smart Minecraft inventory packing and compression.
 
-libraries:
-  - org.xerial:sqlite-jdbc:${sqlite.jdbc.version}
-
 commands:
   pack:
     description: Pack configured materials into compact storage forms

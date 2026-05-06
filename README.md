@@ -45,9 +45,6 @@ The full setup and usage guide lives in the GitHub Wiki:
 - Paper 26.1.2
 - Maven 3.x, when building from source
 
-On first startup, Paper downloads SmartPack's SQLite JDBC runtime library unless
-that library is already cached on the server.
-
 ## Build
 
 ```bash
@@ -73,8 +70,8 @@ version, creates `v<version>` after the build passes, and uploads
 Releases can still be created by pushing a version tag directly:
 
 ```bash
-git tag v2.0.0
-git push origin v2.0.0
+git tag v2.0.1
+git push origin v2.0.1
 ```
 
 The workflow can also be run manually from the Actions tab with either `X.Y.Z`

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+---
+
+## [2.0.1] - 2026-05-06
+
 ### Added
 - Added shaded, relocated bStats Bukkit metrics support using SmartPack's registered bStats plugin ID.
 - Added custom bStats charts for SmartPack activation mode, crafting-table requirements, auto-pack configuration, chest packing mode, recipe counts, and enabled auto-pack triggers.
@@ -16,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 - Updated Maven packaging so build output keeps only the final shaded plugin jar.
 - Updated the Dev Release workflow to build every non-production branch push while ignoring `master` and `main`, with a clearer branch-named prerelease artifact and UTC timestamp suffix.
+- Removed the explicit SQLite JDBC library declaration because Paper bundles the SQLite JDBC driver.
 
 ---
 
@@ -26,7 +31,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 - Updated the build, plugin metadata, release workflow, and README requirements for Paper 26.1.2 and Java 25.
-- Declared the SQLite JDBC runtime library in `plugin.yml` so Paper loads the player preference database driver on startup.
 
 ---
 
