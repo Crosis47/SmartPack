@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- Updated the Dev Release workflow to build every non-production branch push while ignoring `master` and `main`, with a clearer branch-named prerelease artifact and UTC timestamp suffix.
+
 ---
 
 ## [2.0.0] - 2026-05-05

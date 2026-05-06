@@ -85,13 +85,13 @@ after the build passes.
 ### Development Releases
 
 Development branch pushes publish GitHub prereleases through the Dev Release
-workflow. It runs for `dev`, `dev/**`, `feature/**`, `release/**`, and `26.*`
-branches, including compatibility branches such as `26.1.2`.
+workflow. It runs on pushes to any branch except `master` or `main`.
 
-Each dev build creates a unique prerelease tag like
-`dev-<branch>-<run>.<attempt>` and uploads a clearly named jar like
-`SmartPack-<version>-dev.<run>.<attempt>-<branch>-<sha>.jar`. These builds are
-for testing and do not replace the stable `master` version-bump release flow.
+Each branch keeps one prerelease tag named `smartpack-dev-<branch>` and one jar
+named `SmartPack-dev-<branch>-<timestamp>.jar`, using a UTC timestamp such as
+`20260505-223000Z` at the end. A new push to the same branch updates that
+branch prerelease and replaces its older timestamped jar. These builds are for
+testing and do not replace the stable `master` version-bump release flow.
 
 ## Install
 

@@ -2,12 +2,9 @@ name: Dev Release
 
 on:
   push:
-    branches:
-      - dev
-      - "dev/**"
-      - "feature/**"
-      - "release/**"
-      - "26.*"
+    branches-ignore:
+      - master
+      - main
   workflow_dispatch:
 
 permissions:
@@ -20,13 +17,14 @@ concurrency:
 jobs:
   dev-release:
     name: Build and publish development prerelease
+    if: github.event_name != 'push' || github.event.deleted == false
     runs-on: ubuntu-latest
 
     steps:
       - name: Reject stable branch
-        if: github.ref_name == 'master'
+        if: github.ref_name == 'master' || github.ref_name == 'main'
         run: |
-          echo "::error::Use the stable Release workflow for master builds."
+          echo "::error::Use the stable Release workflow for production branch builds."
           exit 1
 
       - name: Checkout repository
@@ -72,27 +70,30 @@ jobs:
             safe_branch="branch"
           fi
 
-          short_sha="${GITHUB_SHA::7}"
-          run_id="${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
-          tag="dev-${safe_branch}-${run_id}"
-          artifact="SmartPack-${version}-dev.${run_id}-${safe_branch}-${short_sha}.jar"
-          title="SmartPack ${version} dev build ${run_id} (${branch})"
+          build_timestamp="$(date -u +'%Y%m%d-%H%M%SZ')"
+          tag="smartpack-dev-${safe_branch}"
+          artifact="SmartPack-dev-${safe_branch}-${build_timestamp}.jar"
+          title="SmartPack ${version} dev: ${branch} (${build_timestamp})"
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 
           cat > dev-release-notes.md <<EOF
-          Development build from branch \`$branch\`.
+          Latest development prerelease from branch \`$branch\`.
 
-          - Commit: \`$GITHUB_SHA\`
-          - Run: \`$GITHUB_RUN_ID\` attempt \`$GITHUB_RUN_ATTEMPT\`
+          - Download: \`$artifact\`
           - Maven version: \`$version\`
+          - Build timestamp: \`$build_timestamp\`
+          - Commit: \`$GITHUB_SHA\`
+          - Workflow run: $run_url
+          - Run attempt: \`$GITHUB_RUN_ATTEMPT\`
 
-          This is a prerelease build for testing and may be unstable.
+          This prerelease is replaced each time \`$branch\` is pushed. It is for testing and may be unstable.
           EOF
 
           {
             echo "version=$version"
             echo "branch=$branch"
             echo "safe_branch=$safe_branch"
-            echo "short_sha=$short_sha"
+            echo "build_timestamp=$build_timestamp"
             echo "tag=$tag"
             echo "artifact=$artifact"
             echo "title=$title"
@@ -113,7 +114,7 @@ jobs:
           test -f "$source_jar"
           cp "$source_jar" "$ARTIFACT"
 
-      - name: Create dev release tag
+      - name: Create or update dev release tag
         shell: bash
         env:
           TAG: ${{ steps.dev.outputs.tag }}
@@ -121,21 +122,22 @@ jobs:
           set -euo pipefail
 
           git fetch --tags --force
-          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-            existing_sha="$(git rev-list -n 1 "$TAG")"
-            if [[ "$existing_sha" != "$GITHUB_SHA" ]]; then
-              echo "::error::Tag $TAG already exists at $existing_sha instead of $GITHUB_SHA."
-              exit 1
-            fi
-
-            echo "::notice::Tag $TAG already exists at this commit. Reusing it."
-            exit 0
-          fi
-
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag "$TAG" "$GITHUB_SHA"
-          git push origin "refs/tags/$TAG"
+
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            existing_sha="$(git rev-list -n 1 "$TAG")"
+            if [[ "$existing_sha" == "$GITHUB_SHA" ]]; then
+              echo "::notice::Tag $TAG already points at this commit."
+            else
+              echo "::notice::Moving $TAG from $existing_sha to $GITHUB_SHA."
+            fi
+          else
+            echo "::notice::Creating $TAG at $GITHUB_SHA."
+          fi
+
+          git tag -f "$TAG" "$GITHUB_SHA"
+          git push --force origin "refs/tags/$TAG"
 
       - name: Publish GitHub prerelease
         shell: bash
@@ -144,6 +146,7 @@ jobs:
           TAG: ${{ steps.dev.outputs.tag }}
           TITLE: ${{ steps.dev.outputs.title }}
           ARTIFACT: ${{ steps.dev.outputs.artifact }}
+          SAFE_BRANCH: ${{ steps.dev.outputs.safe_branch }}
         run: |
           set -euo pipefail
 
@@ -152,6 +155,14 @@ jobs:
               --prerelease \
               --title "$TITLE" \
               --notes-file dev-release-notes.md
+            gh release view "$TAG" --json assets --jq '.assets[].name' \
+              | while read -r asset; do
+                  case "$asset" in
+                    SmartPack-dev-"$SAFE_BRANCH"-*.jar)
+                      gh release delete-asset "$TAG" "$asset" --yes
+                      ;;
+                  esac
+                done
             gh release upload "$TAG" "$ARTIFACT#${ARTIFACT}" --clobber
           else
             gh release create "$TAG" "$ARTIFACT#${ARTIFACT}" \
