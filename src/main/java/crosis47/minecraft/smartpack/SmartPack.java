@@ -5,6 +5,10 @@ import crosis47.minecraft.smartpack.storage.PlayerExclusionStore;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import org.bstats.bukkit.Metrics;
+import org.bstats.charts.SimpleBarChart;
+import org.bstats.charts.SimplePie;
+import org.bstats.charts.SingleLineChart;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
@@ -33,7 +37,9 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -42,6 +48,7 @@ import java.util.Map;
 public final class SmartPack extends JavaPlugin {
 
     private static final int CURRENT_CONFIG_VERSION = 16;
+    private static final int BSTATS_PLUGIN_ID = 31132;
     private static final String DEFAULT_SMART_PACKER_NAME = "Smart Packer";
 
     private final Set<Material> disabledPackInputs = new HashSet<>();
@@ -88,6 +95,7 @@ public final class SmartPack extends JavaPlugin {
 
         refreshSmartPackerRecipe();
         cleanupSmartPackerItemsForOnlinePlayers();
+        startMetrics();
 
         getLogger().info("SmartPack enabled.");
     }
@@ -99,6 +107,107 @@ public final class SmartPack extends JavaPlugin {
             playerExclusionStore.shutdown();
         }
         getLogger().info("SmartPack disabled.");
+    }
+
+    private void startMetrics() {
+        Metrics metrics = new Metrics(this, BSTATS_PLUGIN_ID);
+        addCustomMetricsCharts(metrics);
+    }
+
+    private void addCustomMetricsCharts(final Metrics metrics) {
+        metrics.addCustomChart(new SimplePie("activation_mode", () -> getActivationMode().name()));
+        metrics.addCustomChart(new SimplePie("crafting_table_requirement", this::getCraftingTableRequirementMetric));
+        metrics.addCustomChart(new SimplePie("auto_pack_state", this::getAutoPackStateMetric));
+        metrics.addCustomChart(new SimplePie("auto_pack_default_preference", () -> booleanMetric(
+                getConfig().getBoolean("auto_pack.default_enabled", false)
+        )));
+        metrics.addCustomChart(new SimplePie("chest_pack_mode", this::getChestPackModeMetric));
+        metrics.addCustomChart(new SimplePie("smart_packer_cooldown_mode", () -> booleanMetric(
+                isSmartPackerCooldownModeEnabled()
+        )));
+        metrics.addCustomChart(new SingleLineChart("configured_pack_recipes", this::countConfiguredPackRecipes));
+        metrics.addCustomChart(new SingleLineChart("disabled_pack_recipes", disabledPackInputs::size));
+        metrics.addCustomChart(new SimpleBarChart("auto_pack_triggers", this::getAutoPackTriggerMetric));
+    }
+
+    private String getCraftingTableRequirementMetric() {
+        String mode = getConfig().getString("requirements.crafting_table_mode", "DISABLED");
+        if (mode == null || mode.isBlank()) {
+            return "DISABLED";
+        }
+
+        return switch (mode.trim().toUpperCase(Locale.ROOT)) {
+            case "DISABLED", "INVENTORY_ONLY", "NEARBY_ONLY", "INVENTORY_OR_NEARBY" -> mode.trim().toUpperCase(Locale.ROOT);
+            default -> "INVALID";
+        };
+    }
+
+    private String getAutoPackStateMetric() {
+        if (!getConfig().getBoolean("auto_pack.enabled", false)) {
+            return "DISABLED";
+        }
+
+        if (isSmartPackerCooldownModeEnabled()) {
+            return "DISABLED_BY_SMART_PACKER_COOLDOWN";
+        }
+
+        return isSmartPackerItemModeEnabled() ? "ENABLED_SMART_PACKER_ITEM" : "ENABLED_COMMAND";
+    }
+
+    private String getChestPackModeMetric() {
+        if (!getConfig().getBoolean("chest_pack.enabled", true)) {
+            return "DISABLED";
+        }
+
+        boolean commandEnabled = getConfig().getBoolean("chest_pack.command", true);
+        boolean itemEnabled = getConfig().getBoolean("chest_pack.smart_packer_item", true);
+
+        if (commandEnabled && itemEnabled) {
+            return "COMMAND_AND_SMART_PACKER_ITEM";
+        }
+        if (commandEnabled) {
+            return "COMMAND_ONLY";
+        }
+        if (itemEnabled) {
+            return "SMART_PACKER_ITEM_ONLY";
+        }
+
+        return "NO_TRIGGERS_ENABLED";
+    }
+
+    private int countConfiguredPackRecipes() {
+        ConfigurationSection packSection = getConfig().getConfigurationSection("pack");
+        return packSection == null ? 0 : packSection.getKeys(false).size();
+    }
+
+    private Map<String, Integer> getAutoPackTriggerMetric() {
+        Map<String, Integer> triggers = new LinkedHashMap<>();
+
+        if (!getConfig().getBoolean("auto_pack.enabled", false)) {
+            triggers.put("auto_pack_disabled", 1);
+            return triggers;
+        }
+
+        putEnabledTrigger(triggers, "pickup", getConfig().getBoolean("auto_pack.triggers.pickup", true));
+        putEnabledTrigger(triggers, "join", getConfig().getBoolean("auto_pack.triggers.join", false));
+        putEnabledTrigger(triggers, "crafting_table_place", getConfig().getBoolean("auto_pack.triggers.crafting_table_place", true));
+        putEnabledTrigger(triggers, "crafting_table_nearby", getConfig().getBoolean("auto_pack.triggers.crafting_table_nearby", true));
+
+        if (triggers.isEmpty()) {
+            triggers.put("no_triggers_enabled", 1);
+        }
+
+        return triggers;
+    }
+
+    private void putEnabledTrigger(final Map<String, Integer> triggers, final String trigger, final boolean enabled) {
+        if (enabled) {
+            triggers.put(trigger, 1);
+        }
+    }
+
+    private String booleanMetric(final boolean value) {
+        return value ? "ENABLED" : "DISABLED";
     }
 
     public void reloadPluginConfig() {

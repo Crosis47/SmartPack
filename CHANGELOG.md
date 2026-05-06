@@ -9,7 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- Added shaded, relocated bStats Bukkit metrics support using SmartPack's registered bStats plugin ID.
+- Added custom bStats charts for SmartPack activation mode, crafting-table requirements, auto-pack configuration, chest packing mode, recipe counts, and enabled auto-pack triggers.
+
 ### Changed
+- Updated Maven packaging so build output keeps only the final shaded plugin jar.
 - Updated the Dev Release workflow to build every non-production branch push while ignoring `master` and `main`, with a clearer branch-named prerelease artifact and UTC timestamp suffix.
 
 ---
