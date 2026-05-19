@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- Configured Maven to use `.mvn/repository` as the repository-local dependency cache and documented that future Codex runs must not place Maven local repositories under `target/`.
+
 ---
 
 ## [2.0.1] - 2026-05-06
