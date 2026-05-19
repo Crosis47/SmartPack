@@ -41,12 +41,9 @@ The full setup and usage guide lives in the GitHub Wiki:
 
 ## Requirements
 
-- Java 25
-- Paper 26.1.2
+- Java 21
+- Paper 1.21.11
 - Maven 3.x, when building from source
-
-On first startup, Paper downloads SmartPack's SQLite JDBC runtime library unless
-that library is already cached on the server.
 
 ## Build
 
@@ -66,15 +63,15 @@ commit the version bump, and push:
 git push origin master
 ```
 
-The workflow builds with Java 25, verifies that the tag matches the Maven
+The workflow builds with Java 21, verifies that the tag matches the Maven
 version, creates `v<version>` after the build passes, and uploads
 `target/smartpack-<version>.jar` to the GitHub release.
 
 Releases can still be created by pushing a version tag directly:
 
 ```bash
-git tag v1.5.1
-git push origin v1.5.1
+git tag v1.5.2
+git push origin v1.5.2
 ```
 
 The workflow can also be run manually from the Actions tab with either `X.Y.Z`
@@ -85,8 +82,8 @@ after the build passes.
 ### Development Releases
 
 Development branch pushes publish GitHub prereleases through the Dev Release
-workflow. It runs for `dev`, `dev/**`, `feature/**`, `release/**`, and `26.*`
-branches, including compatibility branches such as `26.1.2`.
+workflow. It runs for `dev`, `dev/**`, `feature/**`, `release/**`, and `1.21.*`
+branches, including compatibility branches such as `1.21.11`.
 
 Each dev build creates a unique prerelease tag like
 `dev-<branch>-<run>.<attempt>` and uploads a clearly named jar like

@@ -19,8 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Added custom bStats charts for SmartPack activation mode, crafting-table requirements, auto-pack configuration, chest packing mode, recipe counts, and enabled auto-pack triggers.
 
 ### Changed
-- Updated the build, plugin metadata, release workflow, and README requirements for Paper 26.1.2 and Java 25.
-- Declared the SQLite JDBC runtime library in `plugin.yml` so Paper loads the player preference database driver on startup.
+- Kept the 1.x build, plugin metadata, release workflow, and README requirements on Paper 1.21.11 and Java 21.
+- Removed the explicit SQLite JDBC runtime library declaration so the 1.x line continues relying on Paper's bundled SQLite driver.
 - Updated Maven packaging so build output keeps only the final shaded plugin jar.
 
 ---
