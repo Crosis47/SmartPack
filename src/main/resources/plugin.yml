@@ -1,7 +1,8 @@
 name: SmartPack
 version: '${project.version}'
 main: crosis47.minecraft.smartpack.SmartPack
-api-version: '26.1.2'
+# Minimum supported API, deliberately lower than the compile dependency.
+api-version: '1.21.11'
 authors: [ crosis47 ]
 description: Paper plugin for smart Minecraft inventory packing and compression.
 

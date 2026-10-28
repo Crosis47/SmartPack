@@ -1,0 +1,5 @@
+name: SmartPackCompatibility
+version: '1.0'
+main: crosis47.minecraft.smartpack.compatibility.CompatibilityProbe
+api-version: '1.21.11'
+depend: [SmartPack]

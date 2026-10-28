@@ -41,9 +41,22 @@ The full setup and usage guide lives in the GitHub Wiki:
 
 ## Requirements
 
-- Java 25
-- Paper 26.1.2
-- Maven 3.x, when building from source
+- Target compatibility: Paper 1.21.11 through 26.3 (one plugin JAR)
+- Java 21+ for Paper 1.21.11; Java 25+ for Paper 26.x
+- JDK 25+ and Maven 3.x when building from source
+
+The build targets the Paper 26.3 API and emits Java 21 bytecode. The
+`api-version` in `plugin.yml` deliberately stays at `1.21.11`: it declares the
+minimum server API, not the newest supported server. SmartPack uses public
+Bukkit/Paper APIs and does not depend on Minecraft internals or remapping.
+Versions below 1.21.11 are not supported.
+
+Validation for 2.1.0: compilation passed against the 1.21.11, 26.1.2, and 26.3
+APIs, with Java 21 bytecode verified. The identical 26.3-built JAR passed the
+server compatibility probe on Paper 1.21.11 (build 131), 26.1.2 (build 53), and
+26.3 (build 227), running locally with JDK 26. CI additionally targets the
+Java 21/25 runtimes listed below. Player-driven interactions still need the
+in-game checks described below.
 
 ## Build
 
@@ -52,6 +65,40 @@ mvn clean package
 ```
 
 The compiled jar is created in `target/` as `smartpack-<version>.jar`.
+
+In Windows Codex sessions that provide a managed HTTP proxy, use:
+
+```powershell
+powershell -File .mvn/Invoke-Maven.ps1 -B -ntp clean verify
+```
+
+Maven does not automatically use the session's `HTTPS_PROXY` environment
+variable. The helper reads the current proxy address and creates temporary
+Maven settings, preserving any default user settings and removing the temporary
+copy afterward. Outside a proxy environment it runs Maven normally. It does not
+change global Codex settings or the repository-local dependency cache.
+
+Maven uses the repository-local cache in `.mvn/repository`, configured by
+`.mvn/maven.config`. Compatibility CI also compiles against Paper 1.21.11 and
+26.1.2 to catch accidental use of newer APIs:
+
+```bash
+mvn clean verify -Dpaper.api.version=1.21.11-R0.1-SNAPSHOT
+mvn clean verify -Dpaper.api.version=26.1.2.build.53-stable
+```
+
+The Paper Compatibility workflow also runs the same 26.3-built JAR on Paper
+1.21.11 with Java 21, and Paper 26.1.2 and 26.3 with Java 25. Each disposable
+server checks plugin startup, command registration/reload, SQLite exclusions and
+auto-pack preferences, tiered chest inventory packing, full-inventory safety,
+Smart Packer item metadata, recipe registration, and cooldown tooltip updates.
+The server probe lives under `src/test/` and is packaged separately for CI; it
+is never included in the production JAR. Console logs are retained as artifacts.
+
+Before releasing, also check player-driven `/pack`, `/pack chest`, the exclusion
+menu, auto-pack triggers, Smart Packer crafting, and cooldown interactions in
+game. Use separate test worlds for each version. Passing compilation alone does
+not establish runtime compatibility; the server matrix must pass as well.
 
 ## Release
 
@@ -70,8 +117,8 @@ version, creates `v<version>` after the build passes, and uploads
 Releases can still be created by pushing a version tag directly:
 
 ```bash
-git tag v2.0.1
-git push origin v2.0.1
+git tag v2.1.0
+git push origin v2.1.0
 ```
 
 The workflow can also be run manually from the Actions tab with either `X.Y.Z`

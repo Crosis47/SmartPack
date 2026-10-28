@@ -9,7 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+---
+
+## [2.1.0] - 2026-10-27
+
+### Added
+- Added API compilation and same-JAR server compatibility matrices for Paper 1.21.11, 26.1.2, and 26.3, including Java 21/25 runtime checks for packing, item metadata, recipes, and SQLite persistence.
+- Added a Windows Maven helper that uses a managed proxy from the current environment without hard-coding its port or changing global settings.
+
 ### Changed
+- Updated the default Paper API dependency to `26.3.build.222-stable`.
+- Target Java 21 bytecode and declare Paper 1.21.11 as the minimum API so one JAR can load on older Paper versions as well as 26.3. Building still requires JDK 25 or newer; Paper 26.x still requires Java 25 or newer.
 - Configured Maven to use `.mvn/repository` as the repository-local dependency cache and documented that future Codex runs must not place Maven local repositories under `target/`.
 
 ---
