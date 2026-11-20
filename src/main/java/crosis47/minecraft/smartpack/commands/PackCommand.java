@@ -28,6 +28,7 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
+import org.bukkit.event.Event;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
@@ -43,6 +44,7 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.InventoryHolder;
+import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -63,7 +65,6 @@ import java.util.Set;
 import java.util.StringJoiner;
 import java.util.UUID;
 import java.util.function.Predicate;
-import java.util.function.Supplier;
 
 public final class PackCommand implements Listener {
 
@@ -79,6 +80,7 @@ public final class PackCommand implements Listener {
     private static final int SMART_PACKER_CHEST_SLOT = 13;
     private static final int SMART_PACKER_AUTO_SLOT = 15;
     private static final int SMART_PACKER_CLOSE_SLOT = 22;
+    private static final int BEDROCK_CHEST_SELECTION_TICKS = 300;
     private static final long PACK_PASS_DELAY_TICKS = 1L;
     private static final int PACK_SETTLE_TICKS = 10;
 
@@ -86,6 +88,7 @@ public final class PackCommand implements Listener {
     private final Predicate<UUID> isBedrockPlayer;
     private final BedrockForms bedrockForms;
     private final Map<UUID, Object> openSmartPackerForms = new HashMap<>();
+    private final Map<UUID, Integer> pendingBedrockChestPacks = new HashMap<>();
     private final Map<UUID, ExcludeMenuSession> excludeMenuSessions = new HashMap<>();
     private final Set<UUID> packInProgress = new HashSet<>();
     private final Set<UUID> pendingAutoPack = new HashSet<>();
@@ -245,7 +248,7 @@ public final class PackCommand implements Listener {
                     isBedrockPlayer.test(player.getUniqueId())
                             ? "message.info.chest_pack_command_mode_required_bedrock" : "message.info.chest_pack_command_mode_required",
                     isBedrockPlayer.test(player.getUniqueId())
-                            ? "Use a held SmartPacker on the chest, then select Pack Chest."
+                            ? "Select Pack Chest in the SmartPacker menu, then use the item on the chest."
                             : "Use the Smart Packer item while a chest is open to pack chest inventories."
             ));
             return;
@@ -320,8 +323,9 @@ public final class PackCommand implements Listener {
                 return;
             }
             Inventory chestInventory = toggleAutoPack ? null : getOpenChestInventory(player);
-            useSmartPacker(player, toggleAutoPack,
-                    isChestPackSmartPackerItemEnabled() ? chestInventory : null);
+            PackRequest request = chestInventory != null && isChestPackSmartPackerItemEnabled()
+                    ? PackRequest.chest(chestInventory) : PackRequest.manual();
+            useSmartPacker(player, toggleAutoPack, request);
         });
     }
 
@@ -334,10 +338,33 @@ public final class PackCommand implements Listener {
                 || !isBedrockPlayer.test(event.getPlayer().getUniqueId())) {
             return;
         }
-        // Air interactions can be pre-cancelled by vanilla. Never place the SmartPacker
-        // or activate the clicked block while opening its action menu.
-        event.setCancelled(true);
         Player player = event.getPlayer();
+        UUID playerId = player.getUniqueId();
+        Block clicked = event.getClickedBlock();
+        Integer selectedAt = pendingBedrockChestPacks.get(playerId);
+        boolean chestSelected = selectedAt != null && Bukkit.getCurrentTick() - selectedAt < BEDROCK_CHEST_SELECTION_TICKS;
+        if (chestSelected && clicked == null) {
+            // The client can also send a use-in-air packet for the same click.
+            event.setCancelled(true);
+            return;
+        }
+        if (chestSelected && isChestBlock(clicked)) {
+            // Let Minecraft open the chest, including its lock, obstruction and plugin checks.
+            // Prevent the SmartPacker itself from being placed, even if the open fails.
+            event.setUseItemInHand(Event.Result.DENY);
+            InventoryView previousView = player.getOpenInventory();
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                if (pendingBedrockChestPacks.remove(playerId, selectedAt) && canUseBedrockSmartPacker(player)) {
+                    packOpenedBedrockChest(player, event, clicked, previousView);
+                }
+            });
+            return;
+        }
+
+        pendingBedrockChestPacks.remove(playerId);
+        // Air interactions can be pre-cancelled by vanilla. Prevent item placement
+        // and block activation while opening the action menu.
+        event.setCancelled(true);
         Bukkit.getScheduler().runTask(plugin, () -> {
             if (canUseBedrockSmartPacker(player)
                     && !openSmartPackerForms.containsKey(player.getUniqueId())
@@ -347,6 +374,35 @@ public final class PackCommand implements Listener {
                 }
             }
         });
+    }
+
+    private void packOpenedBedrockChest(
+            final Player player, final PlayerInteractEvent event, final Block clicked, final InventoryView previousView
+    ) {
+        if (!isChestPackSmartPackerItemEnabled()) {
+            sendChestPackDisabledMessage(player);
+            return;
+        }
+        InventoryView currentView = player.getOpenInventory();
+        Inventory inventory = currentView.getTopInventory();
+        if (event.useInteractedBlock() == Event.Result.DENY || currentView == previousView
+                || !isOpenedChestAt(inventory, clicked)) {
+            player.sendMessage(getMessage("message.error.bedrock_chest_open_failed", "You must be able to open the chest to pack it."));
+            return;
+        }
+        useSmartPacker(player, false, PackRequest.openedChest(inventory));
+    }
+
+    private boolean isOpenedChestAt(final Inventory inventory, final Block block) {
+        InventoryHolder holder = inventory.getHolder();
+        if (holder instanceof DoubleChest doubleChest) {
+            return isChestHalfAt(doubleChest.getLeftSide(), block) || isChestHalfAt(doubleChest.getRightSide(), block);
+        }
+        return isChestHalfAt(holder, block);
+    }
+
+    private boolean isChestHalfAt(final InventoryHolder holder, final Block block) {
+        return holder instanceof Chest chest && chest.getBlock().equals(block);
     }
 
     private boolean canUseBedrockSmartPacker(final Player player) {
@@ -376,7 +432,6 @@ public final class PackCommand implements Listener {
     private boolean openSmartPackerForm(final Player player) {
         UUID playerId = player.getUniqueId();
         SmartPackerForm form = createSmartPackerForm(player);
-        Block originalTarget = getLookedAtBlock(player);
         // Form callbacks can arrive off the server thread. Only the current form can act.
         Object session = new Object();
         openSmartPackerForms.put(playerId, session);
@@ -395,10 +450,7 @@ public final class PackCommand implements Listener {
                             setSmartPackerAutoMode(player, !form.autoEnabled());
                             return;
                         }
-                        runSmartPackerAction(player, action, () -> {
-                            Block target = getLookedAtBlock(player);
-                            return Objects.equals(originalTarget, target) ? getChestBlockInventory(target) : null;
-                        });
+                        runSmartPackerAction(player, action);
                     });
                 }, () -> {
                     if (plugin.isEnabled()) {
@@ -422,7 +474,7 @@ public final class PackCommand implements Listener {
                 createMenuControlItem(Material.CRAFTING_TABLE, "Pack Inventory", NamedTextColor.GREEN));
         inventory.setItem(SMART_PACKER_CHEST_SLOT, createMenuControlItem(Material.CHEST,
                 "Pack Chest", NamedTextColor.GREEN, List.of(
-                        Component.text("Look at a chest before opening this menu.", NamedTextColor.GRAY)
+                        Component.text("Then use the SmartPacker on the chest.", NamedTextColor.GRAY)
                                 .decoration(TextDecoration.ITALIC, false))));
         if (isAutoPackAvailableInCurrentMode()) {
             boolean autoEnabled = plugin.isAutoPackEnabledForPlayer(player.getUniqueId());
@@ -465,50 +517,49 @@ public final class PackCommand implements Listener {
                 return;
             }
             player.closeInventory();
-            runSmartPackerAction(player, slot, () -> getLookedAtChestInventory(player));
+            runSmartPackerAction(player, slot);
         });
     }
 
-    private void runSmartPackerAction(final Player player, final int slot, final Supplier<Inventory> chestTarget) {
+    private void runSmartPackerAction(final Player player, final int slot) {
         if (slot == SMART_PACKER_CLOSE_SLOT || !canUseBedrockSmartPacker(player)) {
             return;
         }
-        Inventory chest = null;
         if (slot == SMART_PACKER_CHEST_SLOT) {
             if (!isChestPackSmartPackerItemEnabled()) {
                 sendChestPackDisabledMessage(player);
                 return;
             }
-            chest = chestTarget.get();
-            if (chest == null) {
-                player.sendMessage(getMessage("message.error.no_chest_target", "Look at a chest within reach."));
+            if (!hasSmartPackerPackPermission(player, true)) {
                 return;
             }
+            pendingBedrockChestPacks.put(player.getUniqueId(), Bukkit.getCurrentTick());
+            player.sendMessage(getMessage("message.info.bedrock_chest_selected",
+                    "Use the held SmartPacker on the chest within 15 seconds."));
+            return;
         }
-        useSmartPacker(player, slot == SMART_PACKER_AUTO_SLOT, chest);
+        useSmartPacker(player, slot == SMART_PACKER_AUTO_SLOT, PackRequest.manual());
     }
 
-    private void useSmartPacker(final Player player, final boolean toggleAutoPack, final Inventory chestInventory) {
+    private void useSmartPacker(final Player player, final boolean toggleAutoPack, final PackRequest request) {
         if (toggleAutoPack) {
             toggleAutoPackFromSmartPackerItem(player);
             return;
         }
-        if (!player.hasPermission("smartpack.use")
-                || (chestInventory != null && !player.hasPermission("smartpack.chest"))) {
+        if (hasSmartPackerPackPermission(player, request.chestTarget()) && tryStartSmartPackerCooldown(player, true)) {
+            executePack(player, request);
+        }
+    }
+
+    private boolean hasSmartPackerPackPermission(final Player player, final boolean chest) {
+        if (!player.hasPermission("smartpack.use") || (chest && !player.hasPermission("smartpack.chest"))) {
             player.sendMessage(getMessage(
                     "message.error.no_permission",
                     "You do not have permission to use this command."
             ));
-            return;
+            return false;
         }
-        if (!tryStartSmartPackerCooldown(player, true)) {
-            return;
-        }
-        if (chestInventory != null) {
-            executePack(player, PackRequest.chest(chestInventory));
-        } else {
-            executePack(player);
-        }
+        return true;
     }
 
     private boolean isChestPackEnabled() {
@@ -568,7 +619,7 @@ public final class PackCommand implements Listener {
     }
 
     private Inventory getChestBlockInventory(final Block block) {
-        if (block == null || (block.getType() != Material.CHEST && block.getType() != Material.TRAPPED_CHEST)) {
+        if (!isChestBlock(block)) {
             return null;
         }
 
@@ -577,6 +628,10 @@ public final class PackCommand implements Listener {
         }
 
         return chest.getInventory();
+    }
+
+    private boolean isChestBlock(final Block block) {
+        return block != null && (block.getType() == Material.CHEST || block.getType() == Material.TRAPPED_CHEST);
     }
 
     private boolean tryStartSmartPackerCooldown(final Player player, final boolean notifyWhenCoolingDown) {
@@ -799,6 +854,7 @@ public final class PackCommand implements Listener {
     public void onPlayerQuit(final PlayerQuitEvent event) {
         UUID playerId = event.getPlayer().getUniqueId();
         openSmartPackerForms.remove(playerId);
+        pendingBedrockChestPacks.remove(playerId);
         pendingAutoPack.remove(playerId);
         lastAutoPackTicks.remove(playerId);
         lastAutoInventoryFullMessageTicks.remove(playerId);
@@ -849,6 +905,11 @@ public final class PackCommand implements Listener {
 
             PackResult result = pack(player, request.targetInventory(player), craftingState, execution, request);
             execution.merge(result);
+
+            if (!request.settleInventory()) {
+                finishPackExecution(player, craftingState, execution, result, request);
+                return;
+            }
 
             if (result.totalProduced() > 0 || result.inventoryChangedDuringRun()) {
                 execution.resetSettleTicks();
@@ -2854,18 +2915,23 @@ public final class PackCommand implements Listener {
         return result;
     }
 
-    private record PackRequest(boolean automatic, Inventory targetInventory, boolean includeNearbyPickups) {
+    private record PackRequest(boolean automatic, Inventory targetInventory, boolean includeNearbyPickups, boolean settleInventory) {
 
         private static PackRequest manual() {
-            return new PackRequest(false, null, true);
+            return new PackRequest(false, null, true, true);
         }
 
         private static PackRequest auto() {
-            return new PackRequest(true, null, true);
+            return new PackRequest(true, null, true, true);
         }
 
         private static PackRequest chest(final Inventory inventory) {
-            return new PackRequest(false, inventory, false);
+            return new PackRequest(false, inventory, false, true);
+        }
+
+        private static PackRequest openedChest(final Inventory inventory) {
+            // Finish in the confirmed open view's tick instead of mutating an inventory after it closes.
+            return new PackRequest(false, inventory, false, false);
         }
 
         private boolean chestTarget() {

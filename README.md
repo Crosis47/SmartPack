@@ -76,9 +76,9 @@ Right-clicking it while a chest is open packs that chest.
 
 Detected Bedrock players hold the SmartPacker and use it on a block to open its
 action form. Select **Pack Inventory**, **Pack Chest**, or **Enable Auto** /
-**Disable Auto**. For chest packing, use the held SmartPacker on the chest
-before selecting **Pack Chest**. If the server cannot send a form, the
-chest-style action menu provides the same actions.
+**Disable Auto**. After selecting **Pack Chest**, use the held SmartPacker on a
+chest within 15 seconds. SmartPack packs the chest only if it opens for you.
+If the server cannot send a form, the chest-style menu provides the same actions.
 
 The Bedrock form and the item lore show whether auto mode is enabled for your
 account. The form only offers the action if you have `smartpack.auto` and the

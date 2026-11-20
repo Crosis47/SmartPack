@@ -8,7 +8,9 @@ import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
+import org.bukkit.block.Chest;
 import org.bukkit.entity.Player;
+import org.bukkit.event.Event;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryAction;
@@ -203,7 +205,57 @@ final class SmartPackerProbe {
         });
         steps.add(() -> click(handler, 13, ClickType.LEFT));
         steps.add(() -> {
-            require(messages.stream().anyMatch(s -> s.contains("Look at a chest")), "chest action does not silently pack player inventory");
+            require(messages.stream().anyMatch(s -> s.contains("Use the held SmartPacker on the chest")),
+                    "chest action waits for a chest interaction");
+            messages.clear();
+            target.setType(Material.CHEST);
+            Chest chest = (Chest) target.getState();
+            chest.getInventory().setItem(0, new ItemStack(Material.COPPER_INGOT, 18));
+            PlayerInteractEvent attempt = interact(handler, EquipmentSlot.HAND, storage.getItem(0));
+            require(attempt.useInteractedBlock() != Event.Result.DENY && attempt.useItemInHand() == Event.Result.DENY,
+                    "armed interaction allows the normal chest open and prevents placement");
+            // Simulate a protection plugin denying the block or cancelling its inventory open.
+            attempt.setUseInteractedBlock(Event.Result.DENY);
+        });
+        steps.add(() -> {
+            Chest chest = (Chest) target.getState();
+            require(chest.getInventory().getItem(0).getAmount() == 18
+                            && messages.stream().anyMatch(s -> s.contains("must be able to open")),
+                    "blocked chest contents stay intact");
+            interact(handler, EquipmentSlot.HAND, storage.getItem(0));
+        });
+        steps.add(() -> click(handler, 13, ClickType.LEFT));
+        steps.add(() -> {
+            messages.clear();
+            interact(handler, EquipmentSlot.HAND, storage.getItem(0));
+        });
+        steps.add(() -> {
+            require(messages.stream().anyMatch(s -> s.contains("must be able to open")),
+                    "an uncancelled interaction that fails to open the chest cannot pack it");
+            interact(handler, EquipmentSlot.HAND, storage.getItem(0));
+        });
+        steps.add(() -> click(handler, 13, ClickType.LEFT));
+        steps.add(() -> {
+            messages.clear();
+            interact(handler, EquipmentSlot.HAND, storage.getItem(0));
+            Block other = target.getRelative(BlockFace.EAST);
+            other.setType(Material.TRAPPED_CHEST);
+            view = createView(((Chest) other.getState()).getInventory());
+        });
+        steps.add(() -> {
+            require(messages.stream().anyMatch(s -> s.contains("must be able to open")),
+                    "opening a different chest cannot authorize the clicked chest");
+            interact(handler, EquipmentSlot.HAND, storage.getItem(0));
+        });
+        steps.add(() -> click(handler, 13, ClickType.LEFT));
+        steps.add(() -> {
+            messages.clear();
+            interact(handler, EquipmentSlot.HAND, storage.getItem(0));
+            view = createView(((Chest) target.getState()).getInventory());
+        });
+        steps.add(() -> {
+            require(messages.stream().anyMatch(s -> s.contains("cooling down")),
+                    "the newly opened matching chest reaches SmartPacker activation");
             messages.clear();
             interact(handler, EquipmentSlot.HAND, storage.getItem(0));
         });

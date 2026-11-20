@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Added optional Bedrock detection through Geyser-Spigot or Floodgate, including support for linked accounts.
 - Bedrock players can hold a SmartPacker and use it on a block to open a native form for inventory packing, chest packing, and toggling auto mode. A chest-style menu provides the same actions if the form is unavailable.
+- Bedrock chest packing requires the player to open the chest by using the SmartPacker on it after selecting **Pack Chest**.
 - The Bedrock exclusion menu has an Edit Mode control for next-run skips and permanent exclusions. Both actions use the same click or tap.
 
 ### Fixed

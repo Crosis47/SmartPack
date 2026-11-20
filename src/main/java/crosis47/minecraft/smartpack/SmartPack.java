@@ -538,7 +538,7 @@ public final class SmartPack extends JavaPlugin {
         List<Component> lore = new ArrayList<>();
         lore.add(Component.text(bedrock ? "Hold and use on a block to open actions." : "Right-click to pack now.", NamedTextColor.GRAY)
                 .decoration(TextDecoration.ITALIC, false));
-        lore.add(Component.text(bedrock ? "For chest packing, use on the chest." : "Open a chest to pack that chest instead.", NamedTextColor.GRAY)
+        lore.add(Component.text(bedrock ? "Choose Pack Chest, then use on the chest." : "Open a chest to pack that chest instead.", NamedTextColor.GRAY)
                 .decoration(TextDecoration.ITALIC, false));
 
         if (isSmartPackerCooldownModeEnabled()) {
