@@ -25,13 +25,14 @@ activation:
   #
   # Options:
   #   COMMAND           - Players use /pack
-  #   SMART_PACKER_ITEM - Players right-click a crafted Smart Packer item
+  #   SMART_PACKER_ITEM - Players activate a crafted Smart Packer item
+  # Java: right-click it in inventory. Bedrock: hold and use on a block for actions.
   #
   mode: COMMAND
 
   smart_packer_item:
     # If true, players may also use /pack while carrying a Smart Packer.
-    # If false, packing is locked to right-clicking the Smart Packer in inventory.
+    # If false, packing requires activating the Smart Packer item.
     allow_command_with_item: false
 
     cooldown:
@@ -94,6 +95,7 @@ chest_pack:
 
   # In SMART_PACKER_ITEM mode, right-clicking the Smart Packer while a chest is
   # open packs that chest inventory instead of the player inventory.
+  # Bedrock players select Pack Chest, then use the held item to open the chest.
   smart_packer_item: true
 
 
@@ -206,6 +208,7 @@ message:
     auto_pack_smart_packer_item_required: "§eAuto mode must be enabled through the Smart Packer item."
     auto_pack_cooldown_mode_disabled: "§eAuto-pack is disabled while Smart Packer cooldown mode is enabled."
     chest_pack_command_mode_required: "§eUse the Smart Packer item while a chest is open to pack chest inventories."
+    bedrock_chest_selected: "§eUse the held SmartPacker on the chest within 15 seconds."
     smart_packer_cooldown_active: "§eSmart Packer cooling down: [time]."
     smart_packer_cooldown_ready: "§aSmart Packer ready."
 
@@ -224,6 +227,7 @@ message:
     smart_packer_item_required: "§cYou must have a Smart Packer in your inventory to use this command."
     chest_pack_disabled: "§cChest packing is disabled on this server."
     no_chest_target: "§eLook at a chest within interaction range to pack it."
+    bedrock_chest_open_failed: "§eYou must be able to open the chest to pack it."
     nothing_to_pack: "§eYou do not have any valid materials to pack."
     chest_nothing_to_pack: "§eChest does not have any valid materials to pack."
 

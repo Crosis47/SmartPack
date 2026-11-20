@@ -1,7 +1,13 @@
 package crosis47.minecraft.smartpack.commands;
 
 import crosis47.minecraft.smartpack.SmartPack;
+import crosis47.minecraft.smartpack.compatibility.BedrockForms;
+import crosis47.minecraft.smartpack.compatibility.BedrockPlayerDetector;
 import crosis47.minecraft.smartpack.requirements.CraftingTableMode;
+import com.mojang.brigadier.Command;
+import com.mojang.brigadier.tree.LiteralCommandNode;
+import io.papermc.paper.command.brigadier.CommandSourceStack;
+import io.papermc.paper.command.brigadier.Commands;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -18,29 +24,31 @@ import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.block.Block;
 import org.bukkit.block.Chest;
 import org.bukkit.block.DoubleChest;
-import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
-import org.bukkit.command.TabExecutor;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
+import org.bukkit.event.Event;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.InventoryHolder;
+import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.util.RayTraceResult;
-import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -56,20 +64,31 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.StringJoiner;
 import java.util.UUID;
+import java.util.function.Predicate;
 
-public final class PackCommand implements TabExecutor, Listener {
+public final class PackCommand implements Listener {
 
     private static final int EXCLUDE_MENU_SIZE = 54;
     private static final int EXCLUDE_MENU_CONTENT_SIZE = 45;
     private static final int EXCLUDE_MENU_PREVIOUS_SLOT = 45;
+    private static final int EXCLUDE_MENU_MODE_SLOT = 47;
     private static final int EXCLUDE_MENU_INFO_SLOT = 49;
     private static final int EXCLUDE_MENU_NEXT_SLOT = 50;
     private static final int EXCLUDE_MENU_APPLY_SLOT = 52;
     private static final int EXCLUDE_MENU_CANCEL_SLOT = 53;
+    private static final int SMART_PACKER_INVENTORY_SLOT = 11;
+    private static final int SMART_PACKER_CHEST_SLOT = 13;
+    private static final int SMART_PACKER_AUTO_SLOT = 15;
+    private static final int SMART_PACKER_CLOSE_SLOT = 22;
+    private static final int BEDROCK_CHEST_SELECTION_TICKS = 300;
     private static final long PACK_PASS_DELAY_TICKS = 1L;
     private static final int PACK_SETTLE_TICKS = 10;
 
     private final SmartPack plugin;
+    private final Predicate<UUID> isBedrockPlayer;
+    private final BedrockForms bedrockForms;
+    private final Map<UUID, Object> openSmartPackerForms = new HashMap<>();
+    private final Map<UUID, Integer> pendingBedrockChestPacks = new HashMap<>();
     private final Map<UUID, ExcludeMenuSession> excludeMenuSessions = new HashMap<>();
     private final Set<UUID> packInProgress = new HashSet<>();
     private final Set<UUID> pendingAutoPack = new HashSet<>();
@@ -78,7 +97,13 @@ public final class PackCommand implements TabExecutor, Listener {
     private final Map<UUID, Long> smartPackerCooldownUntilTicks = new HashMap<>();
 
     public PackCommand(final SmartPack plugin) {
+        this(plugin, new BedrockPlayerDetector(plugin)::isBedrockPlayer);
+    }
+
+    PackCommand(final SmartPack plugin, final Predicate<UUID> isBedrockPlayer) {
         this.plugin = plugin;
+        this.isBedrockPlayer = isBedrockPlayer;
+        this.bedrockForms = new BedrockForms(plugin);
         Bukkit.getScheduler().runTaskTimer(
                 plugin,
                 this::refreshSmartPackerCooldownTooltips,
@@ -87,13 +112,31 @@ public final class PackCommand implements TabExecutor, Listener {
         );
     }
 
-    @Override
-    public boolean onCommand(
-            @NotNull CommandSender sender,
-            @NotNull Command command,
-            @NotNull String label,
-            @NotNull String[] args
-    ) {
+    public LiteralCommandNode<CommandSourceStack> createCommand() {
+        return Commands.literal("pack")
+                .requires(source -> source.getSender().hasPermission("smartpack.use"))
+                .executes(context -> runCommand(context.getSource().getSender()))
+                .then(Commands.literal("exclude")
+                        .executes(context -> runCommand(context.getSource().getSender(), "exclude")))
+                .then(Commands.literal("chest")
+                        .requires(source -> !plugin.isSmartPackerItemModeEnabled() && isChestPackCommandEnabled()
+                                && source.getSender().hasPermission("smartpack.chest"))
+                        .executes(context -> runCommand(context.getSource().getSender(), "chest")))
+                .then(Commands.literal("auto")
+                        .requires(source -> !plugin.isSmartPackerItemModeEnabled() && isAutoPackAvailableInCurrentMode()
+                                && hasAutoPackPermission(source.getSender()))
+                        .executes(context -> runCommand(context.getSource().getSender(), "auto")))
+                .then(Commands.literal("reload")
+                        .requires(source -> source.getSender().hasPermission("smartpack.reload"))
+                        .executes(context -> runCommand(context.getSource().getSender(), "reload")))
+                .build();
+    }
+
+    private int runCommand(final CommandSender sender, final String... args) {
+        return executeCommand(sender, args) ? Command.SINGLE_SUCCESS : 0;
+    }
+
+    private boolean executeCommand(final CommandSender sender, final String[] args) {
         if (args.length > 0) {
             if (args[0].equalsIgnoreCase("reload")) {
                 if (!sender.hasPermission("smartpack.reload")) {
@@ -173,8 +216,11 @@ public final class PackCommand implements TabExecutor, Listener {
         if (plugin.isSmartPackerItemModeEnabled()) {
             if (!plugin.isSmartPackerCommandAllowed()) {
                 player.sendMessage(getMessage(
-                        "message.info.use_smart_packer_item",
-                        "Use a Smart Packer from your inventory to pack materials."
+                        isBedrockPlayer.test(player.getUniqueId())
+                                ? "message.info.use_smart_packer_item_bedrock" : "message.info.use_smart_packer_item",
+                        isBedrockPlayer.test(player.getUniqueId())
+                                ? "Hold a SmartPacker and use it on a block to open its actions."
+                                : "Use a Smart Packer from your inventory to pack materials."
                 ));
                 return true;
             }
@@ -199,8 +245,11 @@ public final class PackCommand implements TabExecutor, Listener {
     private void handleChestPackCommand(final Player player) {
         if (plugin.isSmartPackerItemModeEnabled()) {
             player.sendMessage(getMessage(
-                    "message.info.chest_pack_command_mode_required",
-                    "Use the Smart Packer item while a chest is open to pack chest inventories."
+                    isBedrockPlayer.test(player.getUniqueId())
+                            ? "message.info.chest_pack_command_mode_required_bedrock" : "message.info.chest_pack_command_mode_required",
+                    isBedrockPlayer.test(player.getUniqueId())
+                            ? "Select Pack Chest in the SmartPacker menu, then use the item on the chest."
+                            : "Use the Smart Packer item while a chest is open to pack chest inventories."
             ));
             return;
         }
@@ -232,6 +281,10 @@ public final class PackCommand implements TabExecutor, Listener {
 
     @EventHandler(ignoreCancelled = true)
     public void onInventoryClick(final InventoryClickEvent event) {
+        if (event.getView().getTopInventory().getHolder() instanceof SmartPackerMenuHolder holder) {
+            handleSmartPackerMenuClick(event, holder);
+            return;
+        }
         if (event.getView().getTopInventory().getHolder() instanceof ExcludeMenuHolder holder) {
             handleExcludeMenuClick(event, holder);
             return;
@@ -242,6 +295,11 @@ public final class PackCommand implements TabExecutor, Listener {
         }
 
         if (!(event.getWhoClicked() instanceof Player player)) {
+            return;
+        }
+
+        // Bedrock inventory clicks must remain available for moving the item.
+        if (isBedrockPlayer.test(player.getUniqueId())) {
             return;
         }
 
@@ -259,49 +317,249 @@ public final class PackCommand implements TabExecutor, Listener {
 
         event.setCancelled(true);
 
-        boolean enableAutoPack = event.getClick().isShiftClick();
+        boolean toggleAutoPack = event.getClick().isShiftClick();
         Bukkit.getScheduler().runTask(plugin, () -> {
             if (!player.isOnline()) {
                 return;
             }
-
-            if (enableAutoPack) {
-                enableAutoPackFromSmartPackerItem(player);
-                return;
-            }
-
-            if (!player.hasPermission("smartpack.use")) {
-                player.sendMessage(getMessage(
-                        "message.error.no_permission",
-                        "You do not have permission to use this command."
-                ));
-                return;
-            }
-
-            Inventory chestInventory = getOpenChestInventory(player);
-            if (chestInventory != null && isChestPackSmartPackerItemEnabled()) {
-                if (!player.hasPermission("smartpack.chest")) {
-                    player.sendMessage(getMessage(
-                            "message.error.no_permission",
-                            "You do not have permission to use this command."
-                    ));
-                    return;
-                }
-
-                if (!tryStartSmartPackerCooldown(player, true)) {
-                    return;
-                }
-
-                executePack(player, PackRequest.chest(chestInventory));
-                return;
-            }
-
-            if (!tryStartSmartPackerCooldown(player, true)) {
-                return;
-            }
-
-            executePack(player);
+            Inventory chestInventory = toggleAutoPack ? null : getOpenChestInventory(player);
+            PackRequest request = chestInventory != null && isChestPackSmartPackerItemEnabled()
+                    ? PackRequest.chest(chestInventory) : PackRequest.manual();
+            useSmartPacker(player, toggleAutoPack, request);
         });
+    }
+
+    @EventHandler
+    public void onPlayerInteract(final PlayerInteractEvent event) {
+        if (!plugin.isSmartPackerItemModeEnabled()
+                || event.getHand() != EquipmentSlot.HAND
+                || (event.getAction() != Action.RIGHT_CLICK_BLOCK && event.getAction() != Action.RIGHT_CLICK_AIR)
+                || !plugin.isSmartPackerItem(event.getItem())
+                || !isBedrockPlayer.test(event.getPlayer().getUniqueId())) {
+            return;
+        }
+        Player player = event.getPlayer();
+        UUID playerId = player.getUniqueId();
+        Block clicked = event.getClickedBlock();
+        Integer selectedAt = pendingBedrockChestPacks.get(playerId);
+        boolean chestSelected = selectedAt != null && Bukkit.getCurrentTick() - selectedAt < BEDROCK_CHEST_SELECTION_TICKS;
+        if (chestSelected && clicked == null) {
+            // The client can also send a use-in-air packet for the same click.
+            event.setCancelled(true);
+            return;
+        }
+        if (chestSelected && isChestBlock(clicked)) {
+            // Let Minecraft open the chest, including its lock, obstruction and plugin checks.
+            // Prevent the SmartPacker itself from being placed, even if the open fails.
+            event.setUseItemInHand(Event.Result.DENY);
+            InventoryView previousView = player.getOpenInventory();
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                if (pendingBedrockChestPacks.remove(playerId, selectedAt) && canUseBedrockSmartPacker(player)) {
+                    packOpenedBedrockChest(player, event, clicked, previousView);
+                }
+            });
+            return;
+        }
+
+        pendingBedrockChestPacks.remove(playerId);
+        // Air interactions can be pre-cancelled by vanilla. Prevent item placement
+        // and block activation while opening the action menu.
+        event.setCancelled(true);
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (canUseBedrockSmartPacker(player)
+                    && !openSmartPackerForms.containsKey(player.getUniqueId())
+                    && !(player.getOpenInventory().getTopInventory().getHolder() instanceof SmartPackerMenuHolder)) {
+                if (!openSmartPackerForm(player)) {
+                    openSmartPackerMenu(player);
+                }
+            }
+        });
+    }
+
+    private void packOpenedBedrockChest(
+            final Player player, final PlayerInteractEvent event, final Block clicked, final InventoryView previousView
+    ) {
+        if (!isChestPackSmartPackerItemEnabled()) {
+            sendChestPackDisabledMessage(player);
+            return;
+        }
+        InventoryView currentView = player.getOpenInventory();
+        Inventory inventory = currentView.getTopInventory();
+        if (event.useInteractedBlock() == Event.Result.DENY || currentView == previousView
+                || !isOpenedChestAt(inventory, clicked)) {
+            player.sendMessage(getMessage("message.error.bedrock_chest_open_failed", "You must be able to open the chest to pack it."));
+            return;
+        }
+        useSmartPacker(player, false, PackRequest.openedChest(inventory));
+    }
+
+    private boolean isOpenedChestAt(final Inventory inventory, final Block block) {
+        InventoryHolder holder = inventory.getHolder();
+        if (holder instanceof DoubleChest doubleChest) {
+            return isChestHalfAt(doubleChest.getLeftSide(), block) || isChestHalfAt(doubleChest.getRightSide(), block);
+        }
+        return isChestHalfAt(holder, block);
+    }
+
+    private boolean isChestHalfAt(final InventoryHolder holder, final Block block) {
+        return holder instanceof Chest chest && chest.getBlock().equals(block);
+    }
+
+    private boolean canUseBedrockSmartPacker(final Player player) {
+        return player.isOnline() && plugin.isSmartPackerItemModeEnabled()
+                && isBedrockPlayer.test(player.getUniqueId())
+                && plugin.hasSmartPackerItem(player.getInventory().getStorageContents());
+    }
+
+    private SmartPackerForm createSmartPackerForm(final Player player) {
+        UUID playerId = player.getUniqueId();
+        boolean showAuto = isAutoPackAvailableInCurrentMode() && hasAutoPackPermission(player);
+        boolean autoEnabled = showAuto && plugin.isAutoPackEnabledForPlayer(playerId);
+        String content = "Choose what to pack.";
+        Map<Integer, BedrockForms.Button> buttons = new LinkedHashMap<>();
+        buttons.put(SMART_PACKER_INVENTORY_SLOT, new BedrockForms.Button("Pack Inventory", "textures/items/bundle"));
+        buttons.put(SMART_PACKER_CHEST_SLOT, new BedrockForms.Button("Pack Chest", "textures/blocks/chest_front"));
+        if (showAuto) {
+            content = "Auto mode: " + (autoEnabled ? "Enabled" : "Disabled") + "\n" + content;
+            buttons.put(SMART_PACKER_AUTO_SLOT, autoEnabled
+                    ? new BedrockForms.Button("Disable Auto", "textures/items/dye_powder_red")
+                    : new BedrockForms.Button("Enable Auto", "textures/items/dye_powder_lime"));
+        }
+        buttons.put(SMART_PACKER_CLOSE_SLOT, new BedrockForms.Button("Close", "textures/ui/cancel"));
+        return new SmartPackerForm(content, List.copyOf(buttons.keySet()), List.copyOf(buttons.values()), autoEnabled);
+    }
+
+    private boolean openSmartPackerForm(final Player player) {
+        UUID playerId = player.getUniqueId();
+        SmartPackerForm form = createSmartPackerForm(player);
+        // Form callbacks can arrive off the server thread. Only the current form can act.
+        Object session = new Object();
+        openSmartPackerForms.put(playerId, session);
+        boolean sent = bedrockForms.sendSimpleForm(playerId, "SmartPacker", form.content(), form.buttons(),
+                selection -> {
+                    if (!plugin.isEnabled()) {
+                        return;
+                    }
+                    Bukkit.getScheduler().runTask(plugin, () -> {
+                        if (!openSmartPackerForms.remove(playerId, session) || !canUseBedrockSmartPacker(player)
+                                || selection < 0 || selection >= form.actions().size()) {
+                            return;
+                        }
+                        int action = form.actions().get(selection);
+                        if (action == SMART_PACKER_AUTO_SLOT) {
+                            setSmartPackerAutoMode(player, !form.autoEnabled());
+                            return;
+                        }
+                        runSmartPackerAction(player, action);
+                    });
+                }, () -> {
+                    if (plugin.isEnabled()) {
+                        Bukkit.getScheduler().runTask(plugin, () -> openSmartPackerForms.remove(playerId, session));
+                    }
+                });
+        if (!sent) {
+            openSmartPackerForms.remove(playerId, session);
+        }
+        return sent;
+    }
+
+    private void openSmartPackerMenu(final Player player) {
+        SmartPackerMenuHolder holder = new SmartPackerMenuHolder(player.getUniqueId());
+        Inventory inventory = Bukkit.createInventory(holder, 27, Component.text("SmartPacker", NamedTextColor.DARK_GREEN));
+        holder.inventory = inventory;
+        for (int slot = 0; slot < inventory.getSize(); slot++) {
+            inventory.setItem(slot, createMenuFillerItem());
+        }
+        inventory.setItem(SMART_PACKER_INVENTORY_SLOT,
+                createMenuControlItem(Material.CRAFTING_TABLE, "Pack Inventory", NamedTextColor.GREEN));
+        inventory.setItem(SMART_PACKER_CHEST_SLOT, createMenuControlItem(Material.CHEST,
+                "Pack Chest", NamedTextColor.GREEN, List.of(
+                        Component.text("Then use the SmartPacker on the chest.", NamedTextColor.GRAY)
+                                .decoration(TextDecoration.ITALIC, false))));
+        if (isAutoPackAvailableInCurrentMode()) {
+            boolean autoEnabled = plugin.isAutoPackEnabledForPlayer(player.getUniqueId());
+            inventory.setItem(SMART_PACKER_AUTO_SLOT, createMenuControlItem(
+                    autoEnabled ? Material.LIME_DYE : Material.GRAY_DYE,
+                    autoEnabled ? "Disable Auto" : "Enable Auto",
+                    autoEnabled ? NamedTextColor.RED : NamedTextColor.GREEN,
+                    List.of(
+                            Component.text("Auto mode: " + (autoEnabled ? "Enabled" : "Disabled"),
+                                            autoEnabled ? NamedTextColor.GREEN : NamedTextColor.RED)
+                                    .decoration(TextDecoration.ITALIC, false),
+                            Component.text("Click to " + (autoEnabled ? "disable" : "enable") + " auto-pack.", NamedTextColor.GRAY)
+                                    .decoration(TextDecoration.ITALIC, false)
+                    )));
+        }
+        inventory.setItem(SMART_PACKER_CLOSE_SLOT,
+                createMenuControlItem(Material.BARRIER, "Close", NamedTextColor.RED));
+        player.openInventory(inventory);
+    }
+
+    private void handleSmartPackerMenuClick(final InventoryClickEvent event, final SmartPackerMenuHolder holder) {
+        event.setCancelled(true);
+        if (!(event.getWhoClicked() instanceof Player player)
+                || !holder.playerId.equals(player.getUniqueId())
+                || holder.actionPending
+                || !event.getClick().isLeftClick() && !event.getClick().isRightClick()) {
+            return;
+        }
+        int slot = event.getRawSlot();
+        if (slot != SMART_PACKER_INVENTORY_SLOT && slot != SMART_PACKER_CHEST_SLOT
+                && slot != SMART_PACKER_AUTO_SLOT && slot != SMART_PACKER_CLOSE_SLOT) {
+            return;
+        }
+        if (slot == SMART_PACKER_AUTO_SLOT && !isAutoPackAvailableInCurrentMode()) {
+            return;
+        }
+        holder.actionPending = true;
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (!player.isOnline() || player.getOpenInventory().getTopInventory() != holder.inventory) {
+                return;
+            }
+            player.closeInventory();
+            runSmartPackerAction(player, slot);
+        });
+    }
+
+    private void runSmartPackerAction(final Player player, final int slot) {
+        if (slot == SMART_PACKER_CLOSE_SLOT || !canUseBedrockSmartPacker(player)) {
+            return;
+        }
+        if (slot == SMART_PACKER_CHEST_SLOT) {
+            if (!isChestPackSmartPackerItemEnabled()) {
+                sendChestPackDisabledMessage(player);
+                return;
+            }
+            if (!hasSmartPackerPackPermission(player, true)) {
+                return;
+            }
+            pendingBedrockChestPacks.put(player.getUniqueId(), Bukkit.getCurrentTick());
+            player.sendMessage(getMessage("message.info.bedrock_chest_selected",
+                    "Use the held SmartPacker on the chest within 15 seconds."));
+            return;
+        }
+        useSmartPacker(player, slot == SMART_PACKER_AUTO_SLOT, PackRequest.manual());
+    }
+
+    private void useSmartPacker(final Player player, final boolean toggleAutoPack, final PackRequest request) {
+        if (toggleAutoPack) {
+            toggleAutoPackFromSmartPackerItem(player);
+            return;
+        }
+        if (hasSmartPackerPackPermission(player, request.chestTarget()) && tryStartSmartPackerCooldown(player, true)) {
+            executePack(player, request);
+        }
+    }
+
+    private boolean hasSmartPackerPackPermission(final Player player, final boolean chest) {
+        if (!player.hasPermission("smartpack.use") || (chest && !player.hasPermission("smartpack.chest"))) {
+            player.sendMessage(getMessage(
+                    "message.error.no_permission",
+                    "You do not have permission to use this command."
+            ));
+            return false;
+        }
+        return true;
     }
 
     private boolean isChestPackEnabled() {
@@ -324,17 +582,12 @@ public final class PackCommand implements TabExecutor, Listener {
     }
 
     private Inventory getLookedAtChestInventory(final Player player) {
+        return getChestBlockInventory(getLookedAtBlock(player));
+    }
+
+    private Block getLookedAtBlock(final Player player) {
         RayTraceResult result = player.rayTraceBlocks(getBlockInteractionRange(player), FluidCollisionMode.NEVER);
-        if (result == null) {
-            return null;
-        }
-
-        Block block = result.getHitBlock();
-        if (block == null) {
-            return null;
-        }
-
-        return getChestBlockInventory(block);
+        return result == null ? null : result.getHitBlock();
     }
 
     private double getBlockInteractionRange(final Player player) {
@@ -366,7 +619,7 @@ public final class PackCommand implements TabExecutor, Listener {
     }
 
     private Inventory getChestBlockInventory(final Block block) {
-        if (block == null || (block.getType() != Material.CHEST && block.getType() != Material.TRAPPED_CHEST)) {
+        if (!isChestBlock(block)) {
             return null;
         }
 
@@ -375,6 +628,10 @@ public final class PackCommand implements TabExecutor, Listener {
         }
 
         return chest.getInventory();
+    }
+
+    private boolean isChestBlock(final Block block) {
+        return block != null && (block.getType() == Material.CHEST || block.getType() == Material.TRAPPED_CHEST);
     }
 
     private boolean tryStartSmartPackerCooldown(final Player player, final boolean notifyWhenCoolingDown) {
@@ -466,6 +723,8 @@ public final class PackCommand implements TabExecutor, Listener {
                 ? 0L
                 : getRemainingSmartPackerCooldownTicks(player.getUniqueId());
         boolean updated = false;
+        boolean bedrock = isBedrockPlayer.test(player.getUniqueId());
+        boolean autoPackEnabled = plugin.isAutoPackEnabledForPlayer(player.getUniqueId());
 
         PlayerInventory inventory = player.getInventory();
         ItemStack[] contents = inventory.getContents();
@@ -475,7 +734,7 @@ public final class PackCommand implements TabExecutor, Listener {
                 continue;
             }
 
-            if (plugin.updateSmartPackerItemLore(item, remainingTicks)) {
+            if (plugin.updateSmartPackerItemLore(item, remainingTicks, bedrock, autoPackEnabled)) {
                 inventory.setItem(slot, item);
                 updated = true;
             }
@@ -483,7 +742,7 @@ public final class PackCommand implements TabExecutor, Listener {
 
         ItemStack cursorItem = player.getItemOnCursor();
         if (plugin.isSmartPackerItem(cursorItem)) {
-            updated |= plugin.updateSmartPackerItemLore(cursorItem, remainingTicks);
+            updated |= plugin.updateSmartPackerItemLore(cursorItem, remainingTicks, bedrock, autoPackEnabled);
             player.setItemOnCursor(cursorItem);
         }
 
@@ -518,7 +777,8 @@ public final class PackCommand implements TabExecutor, Listener {
 
     @EventHandler(ignoreCancelled = true)
     public void onInventoryDrag(final InventoryDragEvent event) {
-        if (!(event.getView().getTopInventory().getHolder() instanceof ExcludeMenuHolder)) {
+        InventoryHolder holder = event.getView().getTopInventory().getHolder();
+        if (!(holder instanceof ExcludeMenuHolder) && !(holder instanceof SmartPackerMenuHolder)) {
             return;
         }
 
@@ -542,8 +802,7 @@ public final class PackCommand implements TabExecutor, Listener {
         }
 
         if (event.getPlayer() instanceof Player player) {
-            persistPersistentExclusionsIfChanged(player, session);
-            sendExclusionChangesAppliedMessage(player);
+            applyExcludeMenuChanges(player, session);
         }
     }
 
@@ -594,6 +853,8 @@ public final class PackCommand implements TabExecutor, Listener {
     @EventHandler
     public void onPlayerQuit(final PlayerQuitEvent event) {
         UUID playerId = event.getPlayer().getUniqueId();
+        openSmartPackerForms.remove(playerId);
+        pendingBedrockChestPacks.remove(playerId);
         pendingAutoPack.remove(playerId);
         lastAutoPackTicks.remove(playerId);
         lastAutoInventoryFullMessageTicks.remove(playerId);
@@ -644,6 +905,11 @@ public final class PackCommand implements TabExecutor, Listener {
 
             PackResult result = pack(player, request.targetInventory(player), craftingState, execution, request);
             execution.merge(result);
+
+            if (!request.settleInventory()) {
+                finishPackExecution(player, craftingState, execution, result, request);
+                return;
+            }
 
             if (result.totalProduced() > 0 || result.inventoryChangedDuringRun()) {
                 execution.resetSettleTicks();
@@ -841,25 +1107,38 @@ public final class PackCommand implements TabExecutor, Listener {
         return false;
     }
 
-    private void enableAutoPackFromSmartPackerItem(final Player player) {
-        if (!player.hasPermission("smartpack.use") || !player.hasPermission("smartpack.auto")) {
+    private void toggleAutoPackFromSmartPackerItem(final Player player) {
+        setSmartPackerAutoMode(player, !plugin.isAutoPackEnabledForPlayer(player.getUniqueId()));
+    }
+
+    private void setSmartPackerAutoMode(final Player player, final boolean enabled) {
+        if (!canChangeSmartPackerAutoMode(player) || plugin.isAutoPackEnabledForPlayer(player.getUniqueId()) == enabled) {
+            return;
+        }
+        plugin.setAutoPackEnabledForPlayer(player.getUniqueId(), enabled);
+        refreshSmartPackerItems(player);
+        sendAutoPackToggleMessage(player, enabled);
+    }
+
+    private boolean canChangeSmartPackerAutoMode(final Player player) {
+        if (!hasAutoPackPermission(player)) {
             player.sendMessage(getMessage(
                     "message.error.no_permission",
                     "You do not have permission to use this command."
             ));
-            return;
+            return false;
         }
 
         if (!isAutoPackAvailableInCurrentMode()) {
             sendAutoPackUnavailable(player);
-            return;
+            return false;
         }
 
-        plugin.setAutoPackEnabledForPlayer(player.getUniqueId(), true);
-        player.sendMessage(getMessage(
-                "message.info.auto_pack_enabled",
-                "Auto-pack enabled."
-        ));
+        return true;
+    }
+
+    private boolean hasAutoPackPermission(final CommandSender sender) {
+        return sender.hasPermission("smartpack.use") && sender.hasPermission("smartpack.auto");
     }
 
     private boolean isAutoPackAvailableInCurrentMode() {
@@ -935,41 +1214,6 @@ public final class PackCommand implements TabExecutor, Listener {
 
     private void markAutoPackRun(final UUID playerId) {
         lastAutoPackTicks.put(playerId, (long) Bukkit.getCurrentTick());
-    }
-
-    @Override
-    public List<String> onTabComplete(
-            @NotNull CommandSender sender,
-            @NotNull Command command,
-            @NotNull String alias,
-            @NotNull String[] args
-    ) {
-        if (args.length == 1) {
-            String input = args[0].toLowerCase(Locale.ROOT);
-            List<String> completions = new ArrayList<>();
-
-            if ("exclude".startsWith(input)) {
-                completions.add("exclude");
-            }
-            if (!plugin.isSmartPackerItemModeEnabled()
-                    && isChestPackCommandEnabled()
-                    && sender.hasPermission("smartpack.chest")
-                    && "chest".startsWith(input)) {
-                completions.add("chest");
-            }
-            if (!plugin.isSmartPackerItemModeEnabled()
-                    && sender.hasPermission("smartpack.auto")
-                    && "auto".startsWith(input)) {
-                completions.add("auto");
-            }
-            if (sender.hasPermission("smartpack.reload") && "reload".startsWith(input)) {
-                completions.add("reload");
-            }
-
-            return completions;
-        }
-
-        return Collections.emptyList();
     }
 
     private CraftingRequirementState getCraftingRequirementState(final Player player) {
@@ -1738,6 +1982,39 @@ public final class PackCommand implements TabExecutor, Listener {
         player.sendMessage(Component.text("Exclusion changes applied.", NamedTextColor.GREEN));
     }
 
+    private void applyExcludeMenuChanges(final Player player, final ExcludeMenuSession session) {
+        persistPersistentExclusionsIfChanged(player, session);
+
+        Set<Material> currentPersistent = plugin.getPackInputExcludedPersistentSnapshot(player.getUniqueId());
+        Set<Material> currentNextRun = plugin.getPackInputExcludedNextRunSnapshot(player.getUniqueId());
+        Set<Material> materials = new HashSet<>(session.initialPersistentExclusions());
+        materials.addAll(session.initialNextRunExclusions());
+        materials.addAll(currentPersistent);
+        materials.addAll(currentNextRun);
+        List<Material> sortedMaterials = new ArrayList<>(materials);
+        sortedMaterials.sort(Comparator.comparing(this::getItemName));
+
+        // Report only the final changes, not intermediate toggles or discarded edits.
+        for (Material material : sortedMaterials) {
+            boolean persistent = currentPersistent.contains(material);
+            if (persistent != session.initialPersistentExclusions().contains(material)) {
+                player.sendMessage(Component.text(getItemName(material), persistent ? NamedTextColor.RED : NamedTextColor.GREEN)
+                        .append(Component.text(persistent
+                                ? " is now persistently excluded from packing."
+                                : " is no longer persistently excluded.", NamedTextColor.GRAY)));
+            }
+            if (!persistent && currentNextRun.contains(material) != session.initialNextRunExclusions().contains(material)) {
+                boolean nextRun = currentNextRun.contains(material);
+                player.sendMessage(Component.text(getItemName(material), nextRun ? NamedTextColor.YELLOW : NamedTextColor.GREEN)
+                        .append(Component.text(nextRun
+                                ? " will be skipped on the next pack run only."
+                                : " will no longer be skipped on the next pack run.", NamedTextColor.GRAY)));
+            }
+        }
+
+        sendExclusionChangesAppliedMessage(player);
+    }
+
     private void persistPersistentExclusionsIfChanged(
             final Player player,
             final ExcludeMenuSession session
@@ -2096,7 +2373,9 @@ public final class PackCommand implements TabExecutor, Listener {
                 )
         );
 
-        ExcludeMenuHolder holder = new ExcludeMenuHolder(player.getUniqueId(), safePage);
+        ExcludeMenuHolder holder = new ExcludeMenuHolder(
+                player.getUniqueId(), safePage, isBedrockPlayer.test(player.getUniqueId())
+        );
         Inventory inventory = Bukkit.createInventory(
                 holder,
                 EXCLUDE_MENU_SIZE,
@@ -2118,9 +2397,20 @@ public final class PackCommand implements TabExecutor, Listener {
         if (rawSlot < 0 || rawSlot >= event.getView().getTopInventory().getSize()) {
             return;
         }
+        if (!event.getClick().isLeftClick() && !event.getClick().isRightClick()) {
+            return;
+        }
 
         List<Material> configuredInputs = getConfiguredInputMaterials();
         int totalPages = getExcludeMenuPageCount(configuredInputs.size());
+
+        if (rawSlot == EXCLUDE_MENU_MODE_SLOT) {
+            if (holder.bedrock) {
+                holder.persistentEditMode = !holder.persistentEditMode;
+                renderCurrentExcludeMenu(event.getView().getTopInventory(), player, holder, holder.page(), totalPages);
+            }
+            return;
+        }
 
         if (rawSlot < EXCLUDE_MENU_CONTENT_SIZE) {
             int materialIndex = (holder.page() * EXCLUDE_MENU_CONTENT_SIZE) + rawSlot;
@@ -2129,52 +2419,23 @@ public final class PackCommand implements TabExecutor, Listener {
             }
 
             Material material = configuredInputs.get(materialIndex);
-            if (event.getClick().isRightClick()) {
-                boolean excluded = plugin.togglePackInputExcluded(player.getUniqueId(), material);
+            // Geyser cannot reliably distinguish left/right inventory clicks.
+            // The mode button makes both actions available through ordinary clicks.
+            if (holder.bedrock ? holder.persistentEditMode : event.getClick().isRightClick()) {
+                plugin.togglePackInputExcluded(player.getUniqueId(), material);
                 plugin.clearPackInputExcludedNextRun(player.getUniqueId(), material);
 
-                refreshExcludeMenuItem(event, rawSlot, player, material, holder.page(), totalPages);
+                refreshExcludeMenuItem(event, rawSlot, player, material, holder, totalPages);
 
-                if (excluded) {
-                    player.sendMessage(
-                            Component.text(getItemName(material), NamedTextColor.RED)
-                                    .append(Component.text(" is now persistently excluded from packing.", NamedTextColor.GRAY))
-                    );
-                } else {
-                    player.sendMessage(
-                            Component.text(getItemName(material), NamedTextColor.GREEN)
-                                    .append(Component.text(" is no longer persistently excluded.", NamedTextColor.GRAY))
-                    );
-                }
-                return;
-            }
-
-            if (!event.getClick().isLeftClick()) {
                 return;
             }
 
             if (plugin.isPackInputExcluded(player.getUniqueId(), material)) {
-                player.sendMessage(
-                        Component.text(getItemName(material), NamedTextColor.RED)
-                                .append(Component.text(" is already persistently excluded. Right-click it to re-include.", NamedTextColor.GRAY))
-                );
                 return;
             }
 
-            boolean excluded = plugin.togglePackInputExcludedNextRun(player.getUniqueId(), material);
-            refreshExcludeMenuItem(event, rawSlot, player, material, holder.page(), totalPages);
-
-            if (excluded) {
-                player.sendMessage(
-                        Component.text(getItemName(material), NamedTextColor.YELLOW)
-                                .append(Component.text(" will be skipped on the next pack run only.", NamedTextColor.GRAY))
-                );
-            } else {
-                player.sendMessage(
-                        Component.text(getItemName(material), NamedTextColor.GREEN)
-                                .append(Component.text(" will no longer be skipped on the next pack run.", NamedTextColor.GRAY))
-                );
-            }
+            plugin.togglePackInputExcludedNextRun(player.getUniqueId(), material);
+            refreshExcludeMenuItem(event, rawSlot, player, material, holder, totalPages);
             return;
         }
 
@@ -2208,9 +2469,8 @@ public final class PackCommand implements TabExecutor, Listener {
         if (rawSlot == EXCLUDE_MENU_APPLY_SLOT) {
             ExcludeMenuSession session = excludeMenuSessions.remove(player.getUniqueId());
             if (session != null) {
-                persistPersistentExclusionsIfChanged(player, session);
+                applyExcludeMenuChanges(player, session);
             }
-            sendExclusionChangesAppliedMessage(player);
             Bukkit.getScheduler().runTask(plugin, () -> player.closeInventory());
             return;
         }
@@ -2225,12 +2485,36 @@ public final class PackCommand implements TabExecutor, Listener {
         }
     }
 
-    private void fillExcludeMenuControls(final Inventory inventory, final int page, final int totalPages) {
-        for (int slot = EXCLUDE_MENU_CONTENT_SIZE; slot < EXCLUDE_MENU_SIZE; slot++) {
-            inventory.setItem(slot, createMenuFillerItem());
+    private void fillExcludeMenuControls(
+            final Inventory inventory,
+            final int page,
+            final int totalPages,
+            final ExcludeMenuHolder holder
+    ) {
+        if (!holder.bedrock) {
+            for (int slot = EXCLUDE_MENU_CONTENT_SIZE; slot < EXCLUDE_MENU_SIZE; slot++) {
+                inventory.setItem(slot, createMenuFillerItem());
+            }
         }
 
-        inventory.setItem(EXCLUDE_MENU_INFO_SLOT, createExcludeMenuInfoItem(page, totalPages));
+        inventory.setItem(EXCLUDE_MENU_INFO_SLOT, createExcludeMenuInfoItem(page, totalPages, holder));
+        if (holder.bedrock) {
+            boolean persistentEditMode = holder.persistentEditMode;
+            inventory.setItem(
+                EXCLUDE_MENU_MODE_SLOT,
+                createMenuControlItem(
+                        persistentEditMode ? Material.REDSTONE_TORCH : Material.CLOCK,
+                        "Edit Mode: " + (persistentEditMode ? "Permanent" : "Next Run Only"),
+                        persistentEditMode ? NamedTextColor.RED : NamedTextColor.YELLOW,
+                        List.of(
+                                Component.text("Select items to toggle " + (persistentEditMode ? "permanent exclusions." : "one-time skips."), NamedTextColor.GRAY)
+                                        .decoration(TextDecoration.ITALIC, false),
+                                Component.text("Click to switch to " + (persistentEditMode ? "Next Run Only." : "Permanent."), NamedTextColor.GRAY)
+                                        .decoration(TextDecoration.ITALIC, false)
+                        )
+                )
+            );
+        }
 
         if (page > 0) {
             inventory.setItem(
@@ -2273,7 +2557,11 @@ public final class PackCommand implements TabExecutor, Listener {
         );
     }
 
-    private ItemStack createExcludeMenuItem(final Player player, final Material material) {
+    private ItemStack createExcludeMenuItem(
+            final Player player,
+            final Material material,
+            final ExcludeMenuHolder holder
+    ) {
         ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
 
@@ -2291,44 +2579,61 @@ public final class PackCommand implements TabExecutor, Listener {
 
         meta.setEnchantmentGlintOverride(persistentExcluded || nextRunExcluded);
         meta.displayName(statusPrefix.append(materialName).decoration(TextDecoration.ITALIC, false));
+        List<Component> lore = new ArrayList<>();
         if (persistentExcluded) {
-            meta.lore(List.of(
+            lore.addAll(List.of(
                     Component.text("Persistent exclusion is active.", NamedTextColor.RED)
                             .decoration(TextDecoration.ITALIC, false),
                     Component.text("This slot glows to show an active exclusion.", NamedTextColor.DARK_RED)
                             .decoration(TextDecoration.ITALIC, false),
-                    Component.text("Right-click to include this item again.", NamedTextColor.GRAY)
-                            .decoration(TextDecoration.ITALIC, false),
-                    Component.text("Left-click is unavailable while persistent exclusion is active.", NamedTextColor.DARK_GRAY)
+                    Component.text(holder.bedrock
+                            ? holder.persistentEditMode ? "Click to include this item again."
+                            : "Select Permanent mode to include this item again."
+                            : "Right-click to include this item again.", NamedTextColor.GRAY)
                             .decoration(TextDecoration.ITALIC, false)
             ));
+            if (!holder.bedrock) {
+                lore.add(Component.text("Left-click is unavailable while persistent exclusion is active.", NamedTextColor.DARK_GRAY)
+                        .decoration(TextDecoration.ITALIC, false));
+            }
         } else if (nextRunExcluded) {
-            meta.lore(List.of(
+            lore.addAll(List.of(
                     Component.text("This item will be skipped on the next pack run only.", NamedTextColor.YELLOW)
                             .decoration(TextDecoration.ITALIC, false),
                     Component.text("The slot glow marks a temporary exclusion.", NamedTextColor.GOLD)
                             .decoration(TextDecoration.ITALIC, false),
-                    Component.text("Left-click to remove the one-time skip.", NamedTextColor.GRAY)
-                            .decoration(TextDecoration.ITALIC, false),
-                    Component.text("Right-click to make the exclusion persistent.", NamedTextColor.GRAY)
+                    Component.text(holder.bedrock
+                            ? holder.persistentEditMode ? "Click to make the exclusion permanent."
+                            : "Click to remove the one-time skip."
+                            : "Left-click to remove the one-time skip.", NamedTextColor.GRAY)
                             .decoration(TextDecoration.ITALIC, false)
             ));
+            if (!holder.bedrock) {
+                lore.add(Component.text("Right-click to make the exclusion persistent.", NamedTextColor.GRAY)
+                        .decoration(TextDecoration.ITALIC, false));
+            }
         } else {
-            meta.lore(List.of(
+            lore.addAll(List.of(
                     Component.text("No exclusion is active.", NamedTextColor.GREEN)
                             .decoration(TextDecoration.ITALIC, false),
-                    Component.text("Left-click to skip it on the next run only.", NamedTextColor.GRAY)
-                            .decoration(TextDecoration.ITALIC, false),
-                    Component.text("Right-click to exclude it persistently.", NamedTextColor.GRAY)
+                    Component.text(holder.bedrock
+                            ? holder.persistentEditMode ? "Click to exclude it permanently."
+                            : "Click to skip it on the next run only."
+                            : "Left-click to skip it on the next run only.", NamedTextColor.GRAY)
                             .decoration(TextDecoration.ITALIC, false)
             ));
+            if (!holder.bedrock) {
+                lore.add(Component.text("Right-click to exclude it persistently.", NamedTextColor.GRAY)
+                        .decoration(TextDecoration.ITALIC, false));
+            }
         }
 
+        meta.lore(lore);
         item.setItemMeta(meta);
         return item;
     }
 
-    private ItemStack createExcludeMenuInfoItem(final int page, final int totalPages) {
+    private ItemStack createExcludeMenuInfoItem(final int page, final int totalPages, final ExcludeMenuHolder holder) {
         ItemStack item = new ItemStack(Material.BOOK);
         ItemMeta meta = item.getItemMeta();
 
@@ -2336,11 +2641,19 @@ public final class PackCommand implements TabExecutor, Listener {
                 Component.text("Exclusion Help", NamedTextColor.GOLD)
                         .decoration(TextDecoration.ITALIC, false)
         );
-        meta.lore(List.of(
-                Component.text("Left-click: skip on the next pack run only.", NamedTextColor.GRAY)
-                        .decoration(TextDecoration.ITALIC, false),
-                Component.text("Right-click: toggle a persistent exclusion.", NamedTextColor.GRAY)
-                        .decoration(TextDecoration.ITALIC, false),
+        List<Component> lore = new ArrayList<>();
+        if (holder.bedrock) {
+            lore.add(Component.text("Edit mode: " + (holder.persistentEditMode ? "Permanent" : "Next Run Only"), NamedTextColor.YELLOW)
+                    .decoration(TextDecoration.ITALIC, false));
+            lore.add(Component.text("Click the mode button to switch, then select items.", NamedTextColor.GRAY)
+                    .decoration(TextDecoration.ITALIC, false));
+        } else {
+            lore.add(Component.text("Left-click: skip on the next pack run only.", NamedTextColor.GRAY)
+                    .decoration(TextDecoration.ITALIC, false));
+            lore.add(Component.text("Right-click: toggle a persistent exclusion.", NamedTextColor.GRAY)
+                    .decoration(TextDecoration.ITALIC, false));
+        }
+        lore.addAll(List.of(
                 Component.text("Glowing slots have an active exclusion.", NamedTextColor.GRAY)
                         .decoration(TextDecoration.ITALIC, false),
                 Component.text("Red X = persistent, yellow ! = next run only.", NamedTextColor.GRAY)
@@ -2353,6 +2666,7 @@ public final class PackCommand implements TabExecutor, Listener {
                         .decoration(TextDecoration.ITALIC, false)
         ));
 
+        meta.lore(lore);
         item.setItemMeta(meta);
         return item;
     }
@@ -2452,10 +2766,10 @@ public final class PackCommand implements TabExecutor, Listener {
                 break;
             }
 
-            inventory.setItem(slot, createExcludeMenuItem(player, configuredInputs.get(materialIndex)));
+            inventory.setItem(slot, createExcludeMenuItem(player, configuredInputs.get(materialIndex), holder));
         }
 
-        fillExcludeMenuControls(inventory, page, totalPages);
+        fillExcludeMenuControls(inventory, page, totalPages, holder);
     }
 
     private void refreshExcludeMenuItem(
@@ -2463,13 +2777,13 @@ public final class PackCommand implements TabExecutor, Listener {
             final int rawSlot,
             final Player player,
             final Material material,
-            final int page,
+            final ExcludeMenuHolder holder,
             final int totalPages
     ) {
-        event.getView().getTopInventory().setItem(rawSlot, createExcludeMenuItem(player, material));
+        event.getView().getTopInventory().setItem(rawSlot, createExcludeMenuItem(player, material, holder));
         event.getView().getTopInventory().setItem(
                 EXCLUDE_MENU_INFO_SLOT,
-                createExcludeMenuInfoItem(page, totalPages)
+                createExcludeMenuInfoItem(holder.page(), totalPages, holder)
         );
     }
 
@@ -2601,18 +2915,23 @@ public final class PackCommand implements TabExecutor, Listener {
         return result;
     }
 
-    private record PackRequest(boolean automatic, Inventory targetInventory, boolean includeNearbyPickups) {
+    private record PackRequest(boolean automatic, Inventory targetInventory, boolean includeNearbyPickups, boolean settleInventory) {
 
         private static PackRequest manual() {
-            return new PackRequest(false, null, true);
+            return new PackRequest(false, null, true, true);
         }
 
         private static PackRequest auto() {
-            return new PackRequest(true, null, true);
+            return new PackRequest(true, null, true, true);
         }
 
         private static PackRequest chest(final Inventory inventory) {
-            return new PackRequest(false, inventory, false);
+            return new PackRequest(false, inventory, false, true);
+        }
+
+        private static PackRequest openedChest(final Inventory inventory) {
+            // Finish in the confirmed open view's tick instead of mutating an inventory after it closes.
+            return new PackRequest(false, inventory, false, false);
         }
 
         private boolean chestTarget() {
@@ -3037,15 +3356,36 @@ public final class PackCommand implements TabExecutor, Listener {
         }
     }
 
+    private record SmartPackerForm(String content, List<Integer> actions, List<BedrockForms.Button> buttons,
+                                   boolean autoEnabled) { }
+
+    private static final class SmartPackerMenuHolder implements InventoryHolder {
+        private final UUID playerId;
+        private Inventory inventory;
+        private boolean actionPending;
+
+        private SmartPackerMenuHolder(final UUID playerId) {
+            this.playerId = playerId;
+        }
+
+        @Override
+        public Inventory getInventory() {
+            return inventory;
+        }
+    }
+
     private static final class ExcludeMenuHolder implements InventoryHolder {
 
         private final UUID playerId;
+        private final boolean bedrock;
         private int page;
+        private boolean persistentEditMode;
         private Inventory inventory;
 
-        private ExcludeMenuHolder(final UUID playerId, final int page) {
+        private ExcludeMenuHolder(final UUID playerId, final int page, final boolean bedrock) {
             this.playerId = playerId;
             this.page = page;
+            this.bedrock = bedrock;
         }
 
         @Override
