@@ -25,13 +25,14 @@ activation:
   #
   # Options:
   #   COMMAND           - Players use /pack
-  #   SMART_PACKER_ITEM - Players right-click a crafted Smart Packer item
+  #   SMART_PACKER_ITEM - Players activate a crafted Smart Packer item
+  # Java: right-click it in inventory. Bedrock: hold and use on a block for actions.
   #
   mode: COMMAND
 
   smart_packer_item:
     # If true, players may also use /pack while carrying a Smart Packer.
-    # If false, packing is locked to right-clicking the Smart Packer in inventory.
+    # If false, packing requires activating the Smart Packer item.
     allow_command_with_item: false
 
     cooldown:
@@ -94,6 +95,7 @@ chest_pack:
 
   # In SMART_PACKER_ITEM mode, right-clicking the Smart Packer while a chest is
   # open packs that chest inventory instead of the player inventory.
+  # Bedrock players use the held item on a chest, then select Pack Chest.
   smart_packer_item: true
 
 

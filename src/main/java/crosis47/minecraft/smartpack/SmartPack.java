@@ -1,6 +1,7 @@
 package crosis47.minecraft.smartpack;
 
 import crosis47.minecraft.smartpack.commands.PackCommand;
+import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import crosis47.minecraft.smartpack.storage.PlayerExclusionStore;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -12,7 +13,6 @@ import org.bstats.charts.SingleLineChart;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
-import org.bukkit.command.PluginCommand;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -40,7 +40,6 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.Map;
@@ -83,14 +82,10 @@ public final class SmartPack extends JavaPlugin {
             return;
         }
 
-        PluginCommand packCommand = Objects.requireNonNull(
-                getCommand("pack"),
-                "Command 'pack' is missing from plugin.yml"
-        );
-
         PackCommand commandHandler = new PackCommand(this);
-        packCommand.setExecutor(commandHandler);
-        packCommand.setTabCompleter(commandHandler);
+        getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, event ->
+                event.registrar().register(commandHandler.createCommand(),
+                        "Pack configured materials into compact storage forms"));
         getServer().getPluginManager().registerEvents(commandHandler, this);
 
         refreshSmartPackerRecipe();
@@ -218,6 +213,7 @@ public final class SmartPack extends JavaPlugin {
         reloadPersistentAutoPackPreferencesFromStore();
         refreshSmartPackerRecipe();
         cleanupSmartPackerItemsForOnlinePlayers();
+        Bukkit.getOnlinePlayers().forEach(Player::updateCommands);
     }
 
     public boolean isPackInputDisabled(final Material material) {
@@ -514,6 +510,19 @@ public final class SmartPack extends JavaPlugin {
     }
 
     public boolean updateSmartPackerItemLore(final ItemStack item, final long remainingCooldownTicks) {
+        return updateSmartPackerItemLore(item, remainingCooldownTicks, false);
+    }
+
+    public boolean updateSmartPackerItemLore(
+            final ItemStack item, final long remainingCooldownTicks, final boolean bedrock
+    ) {
+        return updateSmartPackerItemLore(item, remainingCooldownTicks, bedrock,
+                getConfig().getBoolean("auto_pack.default_enabled", false));
+    }
+
+    public boolean updateSmartPackerItemLore(
+            final ItemStack item, final long remainingCooldownTicks, final boolean bedrock, final boolean autoPackEnabled
+    ) {
         if (item == null || item.getType() != Material.CRAFTING_TABLE) {
             return false;
         }
@@ -527,15 +536,21 @@ public final class SmartPack extends JavaPlugin {
                 .decoration(TextDecoration.ITALIC, false));
 
         List<Component> lore = new ArrayList<>();
-        lore.add(Component.text("Right-click to pack now.", NamedTextColor.GRAY)
+        lore.add(Component.text(bedrock ? "Hold and use on a block to open actions." : "Right-click to pack now.", NamedTextColor.GRAY)
                 .decoration(TextDecoration.ITALIC, false));
-        lore.add(Component.text("Open a chest to pack that chest instead.", NamedTextColor.GRAY)
+        lore.add(Component.text(bedrock ? "For chest packing, use on the chest." : "Open a chest to pack that chest instead.", NamedTextColor.GRAY)
                 .decoration(TextDecoration.ITALIC, false));
 
         if (isSmartPackerCooldownModeEnabled()) {
             lore.add(buildSmartPackerCooldownLore(remainingCooldownTicks));
-        } else {
-            lore.add(Component.text("Auto mode: shift-right-click to enable.", NamedTextColor.GRAY)
+        } else if (getConfig().getBoolean("auto_pack.enabled", false)) {
+            lore.add(Component.text("Auto mode: ", NamedTextColor.GRAY)
+                    .append(Component.text(autoPackEnabled ? "Enabled" : "Disabled",
+                            autoPackEnabled ? NamedTextColor.GREEN : NamedTextColor.RED))
+                    .decoration(TextDecoration.ITALIC, false));
+            lore.add(Component.text(bedrock
+                            ? "Open SmartPacker actions to change auto mode."
+                            : "Auto mode: shift-right-click to toggle.", NamedTextColor.GRAY)
                     .decoration(TextDecoration.ITALIC, false));
             lore.add(Component.text("Auto mode packs after item pickups.", NamedTextColor.DARK_GRAY)
                     .decoration(TextDecoration.ITALIC, false));

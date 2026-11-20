@@ -23,21 +23,10 @@ SmartPack packs configured inventory materials into compact storage forms, such 
 - Optional Smart Packer cooldown mode with live tooltip updates and a ready ActionBar notice.
 - Chest inventory packing through `/pack chest` or the Smart Packer item.
 - Per-player material exclusions through `/pack exclude`.
+- Bedrock SmartPacker actions and exclusion controls for servers using Geyser.
 - Configurable crafting-table requirements.
 - Reversible-recipe warnings and optional strict disabling.
 - Inventory-full feedback with extra-slot estimates.
-
-## Documentation
-
-The full setup and usage guide lives in the GitHub Wiki:
-
-- [SmartPack Wiki](https://github.com/Crosis47/SmartPack/wiki)
-- [Installation](https://github.com/Crosis47/SmartPack/wiki/Installation)
-- [Commands and Permissions](https://github.com/Crosis47/SmartPack/wiki/Commands-and-Permissions)
-- [Configuration](https://github.com/Crosis47/SmartPack/wiki/Configuration)
-- [Chest Packing](https://github.com/Crosis47/SmartPack/wiki/Chest-Packing)
-- [Recipe Configuration](https://github.com/Crosis47/SmartPack/wiki/Recipe-Configuration)
-- [Troubleshooting](https://github.com/Crosis47/SmartPack/wiki/Troubleshooting)
 
 ## Requirements
 
@@ -51,12 +40,77 @@ minimum server API, not the newest supported server. SmartPack uses public
 Bukkit/Paper APIs and does not depend on Minecraft internals or remapping.
 Versions below 1.21.11 are not supported.
 
-Validation for 2.1.0: compilation passed against the 1.21.11, 26.1.2, and 26.3
-APIs, with Java 21 bytecode verified. The identical 26.3-built JAR passed the
-server compatibility probe on Paper 1.21.11 (build 131), 26.1.2 (build 53), and
-26.3 (build 227), running locally with JDK 26. CI additionally targets the
-Java 21/25 runtimes listed below. Player-driven interactions still need the
-in-game checks described below.
+## Install
+
+1. Download the SmartPack JAR from [GitHub Releases](https://github.com/Crosis47/SmartPack/releases) and put it in your Paper server's `plugins/` directory.
+2. Start the server once to generate `plugins/SmartPack/config.yml`.
+3. Run `/pack` to pack inventory materials, or `/pack exclude` to choose materials to skip. If `/pack` asks for a crafting table, stand near one and try again.
+4. After changing the config, run `/pack reload` with `smartpack.reload` permission.
+
+### Bedrock setup
+
+SmartPack detects Bedrock sessions through Geyser-Spigot or Floodgate on the
+Paper server, including linked accounts. If Geyser runs on a proxy, install
+Floodgate on the Paper backend and configure
+[Floodgate data forwarding](https://geysermc.org/wiki/floodgate/api/#using-the-api-on-backend-servers).
+
+## Commands
+
+| Command | What it does | Permission |
+| --- | --- | --- |
+| `/pack` | Pack configured inventory materials | `smartpack.use` |
+| `/pack chest` | Pack the chest you are looking at in command mode | `smartpack.chest` |
+| `/pack exclude` | Choose materials to skip | `smartpack.use` |
+| `/pack auto` | Toggle automatic packing in command mode | `smartpack.auto` |
+| `/pack reload` | Reload the config | `smartpack.reload` |
+
+All `/pack` subcommands require `smartpack.use`. Type `/pack` followed by a
+space to see the subcommands available to you. On Bedrock, command suggestions
+must be enabled in Geyser.
+
+### SmartPacker on Java and Bedrock
+
+With `activation.mode: SMART_PACKER_ITEM`, Java players right-click the
+SmartPacker in their inventory to pack, or shift-right-click to toggle auto mode.
+Right-clicking it while a chest is open packs that chest.
+
+Detected Bedrock players hold the SmartPacker and use it on a block to open its
+action form. Select **Pack Inventory**, **Pack Chest**, or **Enable Auto** /
+**Disable Auto**. For chest packing, use the held SmartPacker on the chest
+before selecting **Pack Chest**. If the server cannot send a form, the
+chest-style action menu provides the same actions.
+
+The Bedrock form and the item lore show whether auto mode is enabled for your
+account. The form only offers the action if you have `smartpack.auto` and the
+server allows auto-pack. In cooldown mode, the item shows the cooldown in place
+of auto-mode instructions.
+
+### Exclusions on Java and Bedrock
+
+Open `/pack exclude`. Java players left-click materials for next-run skips and
+right-click for permanent exclusions. Their menu has no mode button.
+
+On Bedrock, use **Edit Mode** in the bottom row to switch between **Next Run
+Only** and **Permanent**, then click or tap the materials you want to change.
+The menu opens in Next Run Only mode. Your selected mode stays active as you
+change pages.
+
+Permanent exclusions survive server restarts. **Apply Changes** or closing the
+menu keeps edits; **Cancel Changes** restores the settings from when it opened.
+Item-change messages appear when edits are applied, reporting only the final
+changes. Editing the menu is silent, and canceled edits are not announced.
+
+## Documentation
+
+The full setup and usage guide lives in the GitHub Wiki:
+
+- [SmartPack Wiki](https://github.com/Crosis47/SmartPack/wiki)
+- [Installation](https://github.com/Crosis47/SmartPack/wiki/Installation)
+- [Commands and Permissions](https://github.com/Crosis47/SmartPack/wiki/Commands-and-Permissions)
+- [Configuration](https://github.com/Crosis47/SmartPack/wiki/Configuration)
+- [Chest Packing](https://github.com/Crosis47/SmartPack/wiki/Chest-Packing)
+- [Recipe Configuration](https://github.com/Crosis47/SmartPack/wiki/Recipe-Configuration)
+- [Troubleshooting](https://github.com/Crosis47/SmartPack/wiki/Troubleshooting)
 
 ## Build
 
@@ -92,6 +146,9 @@ The Paper Compatibility workflow also runs the same 26.3-built JAR on Paper
 server checks plugin startup, command registration/reload, SQLite exclusions and
 auto-pack preferences, tiered chest inventory packing, full-inventory safety,
 Smart Packer item metadata, recipe registration, and cooldown tooltip updates.
+The probe also checks command visibility, exclusion editing, pagination, Apply
+and Cancel, and the SmartPacker's auto-mode controls. Test actual Bedrock menus
+and autocomplete in a Bedrock client connected through Geyser.
 The server probe lives under `src/test/` and is packaged separately for CI; it
 is never included in the production JAR. Console logs are retained as artifacts.
 
@@ -102,13 +159,9 @@ not establish runtime compatibility; the server matrix must pass as well.
 
 ## Release
 
-GitHub Actions publishes releases automatically when a push to `master` changes
-the Maven project version in `pom.xml`. Update `pom.xml` and `CHANGELOG.md`,
-commit the version bump, and push:
-
-```bash
-git push origin master
-```
+GitHub Actions publishes a release when a version bump in `pom.xml` reaches
+`master`. Include the `pom.xml` change and matching `CHANGELOG.md` entry in the
+release PR.
 
 The workflow builds with Java 25, verifies that the tag matches the Maven
 version, creates `v<version>` after the build passes, and uploads
@@ -117,8 +170,8 @@ version, creates `v<version>` after the build passes, and uploads
 Releases can still be created by pushing a version tag directly:
 
 ```bash
-git tag v2.1.0
-git push origin v2.1.0
+git tag v2.2.0
+git push origin v2.2.0
 ```
 
 The workflow can also be run manually from the Actions tab with either `X.Y.Z`
@@ -137,23 +190,6 @@ Each build creates a historical prerelease tag named
 `20260505-223000Z` at the end. A new push creates a new prerelease instead of
 replacing older builds. These builds are for testing and do not replace the
 stable `master` version-bump release flow.
-
-## Install
-
-1. Place the jar in your server's `plugins/` directory.
-2. Start the server once to generate `plugins/SmartPack/config.yml`.
-3. Adjust the config.
-4. Run `/pack reload`.
-
-## Commands
-
-| Command | Description |
-| --- | --- |
-| `/pack` | Pack configured materials |
-| `/pack chest` | Pack the chest you are looking at |
-| `/pack exclude` | Choose materials to skip |
-| `/pack auto` | Toggle automatic packing |
-| `/pack reload` | Reload the config |
 
 ## License
 

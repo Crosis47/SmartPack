@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-11-20
+
+### Added
+
+- Added optional Bedrock detection through Geyser-Spigot or Floodgate, including support for linked accounts.
+- Bedrock players can hold a SmartPacker and use it on a block to open a native form for inventory packing, chest packing, and toggling auto mode. A chest-style menu provides the same actions if the form is unavailable.
+- The Bedrock exclusion menu has an Edit Mode control for next-run skips and permanent exclusions. Both actions use the same click or tap.
+
+### Fixed
+
+- `/pack` autocomplete suggests subcommands based on the player's permissions and the server's settings on both Java and Bedrock.
+- Exclusion chat messages report only the final changes when edits are applied. Canceled edits produce no item change messages.
+- SmartPacker lore shows the carrying player's controls and auto-mode status. Auto-mode controls and hints are hidden when the server disables auto-pack or uses cooldown mode.
+- Java players can now use shift-right-click on the SmartPacker to turn auto mode on or off.
+
 ---
 
 ## [2.1.0] - 2026-10-27
